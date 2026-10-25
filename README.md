@@ -1,0 +1,72 @@
+# fyflow-ext.video-thumbnail
+
+A [fyflow-app](../fyflow-app) Plugin that makes JPEG thumbnails and contact sheets of videos. The decoding is done by
+[thumbs-collage](../rust-thumbnail-service-public), a Rust and FFmpeg service the Worker runs beside the Host.
+
+## Set it up
+
+```sh
+pnpm install
+pnpm copy-service   # copies thumbs-collage and its FFmpeg libraries into bin/<platform>-<arch>/
+pnpm check          # typecheck, lint, tests
+```
+
+`pnpm copy-service` reads `../rust-thumbnail-service-public/target/release` unless you pass another folder. `bin/` is
+not committed. The release build needs `--exit-on-stdin-close` (the Worker always passes it).
+
+To install it on a Host, put this folder (or a link to it) in the Host's Plugin directory, with `fyflow-plugin-sdk`
+installed there (`npm install fyflow-plugin-sdk` in the Plugin directory), then Reload. In the desktop app, use
+**Choose folder…** on the Plugins page.
+
+## `VideoThumbnail`
+
+Its Task reads a video and writes a JPEG. Every field below can be a Node setting or a field of the Task input. A
+setting wins over the input, and a nested option (`selection`, `collage`) comes whole from one place, never merged.
+
+| Field | What it is |
+| --- | --- |
+| `path` | The video, an absolute path. Required. |
+| `output` | A `.jpg`/`.jpeg` file to write, or a folder to name one in. |
+| `overwrite` | Make it again even if this video and these options made one in the folder before. |
+| `selection` | `{ mode: "uniform", frames, startOffset?, endOffset? }` (offsets in seconds) or `{ mode: "timestamps", timestamps }`. |
+| `collage` | `{ mode: "grid", rows, cols }` or `{ mode: "advanced", pieces: [{ x, y, w, h }] }` (fractions from 0 to 1), each with `spacing`, `margin`, `width`, `height`, `background: { r, g, b, a? }`. |
+| `fit` | `cover` (crop), `contain` (letterbox) or `stretch`. |
+| `renderTimestamps` | Draw each frame's timestamp, in the bundled DejaVu Sans unless the Profile names a font. |
+| `skipBlankFrames` | Step past black or solid frames. |
+| `forceFallback` | `0` seek, `1` keyframes only, `2` decode everything (slow, for damaged videos). |
+| `thumbWidth`, `thumbHeight` | Size hints for decoding frames. |
+
+With nothing set, the thumbnail is one frame from the middle of the video, 640 pixels wide, blank frames skipped.
+
+**Where the file goes.** First `output`. Without it, the Profile's `outputDir`. Without that,
+`<system temp>/fyflow-video-thumbnails/`, which the OS may clear, so it suits a thumbnail the next Node uses rather
+than one to keep. In a folder, the file is named `<video name>.<hash>.jpg`. The hash covers the video's path, size and
+last change, and the options, so running a Task again on an unchanged video reuses the file (`reused: true`) unless
+`overwrite` is set. A `.jpg` path that is given is always written.
+
+**Result:** `{ path, video, duration, width, height, frames: [{ requested, actual }], reused }`. A frame's `actual`
+timestamp differs from the one `requested` when blank frames were skipped.
+
+**Profile config:** `executablePath`, `fontFile`, `outputDir`, each optional.
+
+## How it runs
+
+The Node Type's pool is inline with one Worker instance per Profile, up to 4 Tasks at once, retired after 30 s with
+none. The instance starts the service in `setup()`:
+
+- on a free port of 127.0.0.1;
+- with its progress WebSocket on;
+- with `--exit-on-stdin-close`, so it dies with the Host however the Host ends.
+
+Each Task is one `POST /make_collage`. Its progress arrives over the WebSocket and goes to the Task's progress. If the
+service dies, the Tasks in flight fail with its last lines of output, and the Worker asks its pool to replace it.
+
+`setup()`, `teardown()` and that last request (`terminateWithError`) are fyflow's, and fyflow-plugin-sdk does not
+promise them yet. See fyflow-app's `.scratch/plugin-sdk-worker-lifecycle/`.
+
+**Not in v1:** Allowed roots. Unlike `fyflow.fs`, this Plugin reads any video and writes any path it is given.
+
+## Tests
+
+The tests run against the real service and skip themselves when `bin/` is missing. `test/fixtures/sample.mp4` is
+1 s of black, then 5 s of ffmpeg's test pattern. `pnpm make-fixture` remakes it with the ffmpeg in `$FFMPEG_DIR/bin`.
