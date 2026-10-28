@@ -15,11 +15,11 @@ importers:
         specifier: 26.6.5
         version: 26.6.5
       fyflow-orchestration:
-        specifier: 0.12.0
-        version: 0.12.0(fyflow-scheduler@0.6.0)
+        specifier: 0.13.0
+        version: 0.13.0(fyflow-scheduler@0.6.0)
       fyflow-plugin-sdk:
-        specifier: 0.3.0
-        version: 0.3.0(fyflow-orchestration@0.12.0(fyflow-scheduler@0.6.0))
+        specifier: 0.5.0
+        version: 0.5.0(fyflow-orchestration@0.13.0(fyflow-scheduler@0.6.0))
       fyflow-scheduler:
         specifier: 0.6.0
         version: 0.6.0
@@ -373,16 +373,16 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  fyflow-orchestration@0.12.0:
-    resolution: {integrity: sha512-NX55d2xRHHPx5IIGpHXvQekPBgTai39EhcBbhJ5g7plevCBLhClJB8QypzHswpliW0YlHJHq5t6WfQfc3QnKgQ==}
+  fyflow-orchestration@0.13.0:
+    resolution: {integrity: sha512-hlqgnAzUYKo9GK2FOZkZ3S78PXGOBCmC1YVf4QCVxr909Uktz7EO7FEbSJGuRFcaHoMahK1lKve0/jmD1lNp2g==}
     engines: {node: '>=22'}
     peerDependencies:
       fyflow-scheduler: 0.6.0
 
-  fyflow-plugin-sdk@0.3.0:
-    resolution: {integrity: sha512-ORn92LcKak7AHWCiuslcQURBsXCe6MTl4wNo9cPk/f9cL2rPPU+KZtQnhyAN5YCcFpctH0Lx+zd8o+w9SHCGXA==}
+  fyflow-plugin-sdk@0.5.0:
+    resolution: {integrity: sha512-W31MD+xfCghpl069j6b27ScrIEykqcW2zgUHK+H1OWrgKte/xKGsuN2pRpBIGB1rE9Evovah4mm45f5TbmaGBA==}
     peerDependencies:
-      fyflow-orchestration: ^0.12.0
+      fyflow-orchestration: ^0.13.0
     peerDependenciesMeta:
       fyflow-orchestration:
         optional: true
@@ -809,14 +809,14 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  fyflow-orchestration@0.12.0(fyflow-scheduler@0.6.0):
+  fyflow-orchestration@0.13.0(fyflow-scheduler@0.6.0):
     dependencies:
       fyflow-scheduler: 0.6.0
       jsonata: 2.2.2
 
-  fyflow-plugin-sdk@0.3.0(fyflow-orchestration@0.12.0(fyflow-scheduler@0.6.0)):
+  fyflow-plugin-sdk@0.5.0(fyflow-orchestration@0.13.0(fyflow-scheduler@0.6.0)):
     optionalDependencies:
-      fyflow-orchestration: 0.12.0(fyflow-scheduler@0.6.0)
+      fyflow-orchestration: 0.13.0(fyflow-scheduler@0.6.0)
 
   fyflow-scheduler@0.6.0: {}
 

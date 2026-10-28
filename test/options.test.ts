@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_OPTIONS, optionsOf, pathFrom, requestOf } from "../options.ts";
 
-const envelope = (settings: Record<string, unknown>, input: unknown = {}) => ({ settings, input });
+const envelope = (settings: Record<string, unknown>, input: unknown = {}) => ({
+  settings: { ...settings, profile: {} },
+  input,
+});
 const video = process.platform === "win32" ? "C:\\videos\\movie.mp4" : "/videos/movie.mp4";
 
 describe("pathFrom", () => {

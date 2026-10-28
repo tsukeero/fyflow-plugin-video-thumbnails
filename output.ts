@@ -13,7 +13,7 @@ export const DEFAULT_OUTPUT_DIR = join(tmpdir(), "fyflow-video-thumbnails");
 export interface OutputQuery {
   /** The Task's `output`: a .jpg/.jpeg file, or a folder. */
   output?: string | undefined;
-  /** The Profile's `outputDir`. */
+  /** The Task's `outputDir`: the Profile's, or the Flow's or its Node's own. */
   outputDir?: string | undefined;
   video: string;
   /** The video's size and last change: a video replaced at the same path makes a new name. */
@@ -33,7 +33,7 @@ export function outputOf({ output, outputDir, video, stats, request }: OutputQue
     throw new Error(`\`output\` must be an absolute path: "${output}" is relative`);
   if (output === undefined && outputDir !== undefined && !absolute(outputDir))
     throw new Error(
-      `\`outputDir\` on this Profile must be an absolute path: "${outputDir}" is relative; fix the Profile`,
+      `\`outputDir\` must be an absolute path: "${outputDir}" is relative; fix it where it is set, in the fyflow-ext.video-thumbnail section of this Node's Profile or in the Flow's own values`,
     );
   if (output !== undefined && /\.jpe?g$/i.test(output)) return { path: resolve(output), named: false };
   const folder = resolve(output ?? outputDir ?? DEFAULT_OUTPUT_DIR);
@@ -66,4 +66,22 @@ export function metadataOf(jpeg: Uint8Array): unknown {
     at += 2 + length;
   }
   return null;
+}
+
+/**
+ * Each frame's timestamps, from the metadata's `frames`: the requested one and the one used. The service writes null
+ * for a frame it could not decode (it still makes the collage when at most a fifth are missing), and those are left
+ * out.
+ */
+export function framesOf(frames: unknown): { requested: number; actual: number }[] {
+  if (!Array.isArray(frames)) return [];
+  return frames
+    .filter(
+      (f): f is { timestamp_requested?: unknown; timestamp_actual?: unknown } =>
+        f !== null && typeof f === "object",
+    )
+    .map((f) => ({
+      requested: typeof f.timestamp_requested === "number" ? f.timestamp_requested : 0,
+      actual: typeof f.timestamp_actual === "number" ? f.timestamp_actual : 0,
+    }));
 }

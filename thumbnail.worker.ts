@@ -1,30 +1,25 @@
 // The `VideoThumbnail` Worker. Its pool is inline with one instance per Profile, and that instance owns one
 // thumbs-collage service: started in `setup()`, stopped in `teardown()`, and asked for every Task's thumbnail, so
 // the decoding happens in the service's process, never on the Host's thread.
-//
-// `setup()`, `teardown()` and the constructor's second argument are fyflow's (its envelope worker calls them on the
-// class a Plugin gives it), not yet promised by fyflow-plugin-sdk, which types only the constructor's config and
-// `run`.
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
+import type { PoolContext, TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
 import { fieldOf, optionsOf, pathFrom, requestOf } from "./options.ts";
-import { metadataOf, outputOf } from "./output.ts";
+import { framesOf, metadataOf, outputOf } from "./output.ts";
 import { EXECUTABLE, type Service, serviceDir, startService } from "./service.ts";
 
-/** A Profile's config: every field optional, each overriding where this Plugin looks by itself. */
+/** The Profile's start-up fields: every one optional, each overriding where this Plugin looks by itself. */
 export interface Config {
   executablePath?: string;
   fontFile?: string;
-  outputDir?: string;
 }
 
-/** What fyflow hands a Worker beside its config: how it asks its pool to replace it. */
-interface PoolContext {
-  terminateWithError(error: Error, options?: { canRestart?: boolean }): void;
+/** The Profile's per-Task fields, under each Task's `settings.profile`; a Flow or its Node may set its own. */
+export interface ProfileFields {
+  outputDir?: string;
 }
 
 export interface ThumbnailResult {
@@ -45,12 +40,14 @@ export interface ThumbnailResult {
 interface Metadata {
   duration?: number;
   size?: { w?: number; h?: number };
-  frames?: { timestamp_requested?: number; timestamp_actual?: number }[];
+  frames?: unknown;
 }
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 
-export default class VideoThumbnail implements Worker<Record<string, unknown>, unknown, ThumbnailResult> {
+export default class VideoThumbnail
+  implements Worker<Record<string, unknown>, unknown, ThumbnailResult, ProfileFields>
+{
   readonly #config: Config;
   readonly #pool: PoolContext | undefined;
   #service: Service | undefined;
@@ -65,8 +62,8 @@ export default class VideoThumbnail implements Worker<Record<string, unknown>, u
     if (!existsSync(executable))
       throw new Error(
         this.#config.executablePath === undefined
-          ? `No thumbnail service at "${executable}": run \`pnpm copy-service\` in the Plugin's folder, or set \`executablePath\` on this Profile`
-          : `No thumbnail service at "${executable}", the \`executablePath\` on this Profile`,
+          ? `No thumbnail service at "${executable}": run \`pnpm copy-service\` in the Plugin's folder, or set \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`
+          : `No thumbnail service at "${executable}", the \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`,
       );
     this.#service = await startService({
       executable,
@@ -83,7 +80,7 @@ export default class VideoThumbnail implements Worker<Record<string, unknown>, u
   }
 
   async run(
-    envelope: TaskEnvelope<Record<string, unknown>>,
+    envelope: TaskEnvelope<Record<string, unknown>, unknown, ProfileFields>,
     context: WorkerContext,
   ): Promise<ThumbnailResult> {
     context.signal.throwIfAborted();
@@ -97,11 +94,15 @@ export default class VideoThumbnail implements Worker<Record<string, unknown>, u
     const overwrite = fieldOf(envelope, "overwrite");
     if (overwrite !== undefined && typeof overwrite !== "boolean")
       throw new Error(`\`overwrite\` must be true or false, not ${JSON.stringify(overwrite)}`);
+    // Absent when fyflow runs this Worker without a Host, which is what adds `profile`.
+    const outputDir: unknown = envelope.settings.profile?.outputDir;
+    if (outputDir !== undefined && typeof outputDir !== "string")
+      throw new Error(`\`outputDir\` must be a path, not ${JSON.stringify(outputDir)}`);
 
     const stats = await stat(video).catch(() => {
       throw new Error(`No video at "${video}"`);
     });
-    const target = outputOf({ output, outputDir: this.#config.outputDir, video, stats, request });
+    const target = outputOf({ output, outputDir, video, stats, request });
     if (target.named && overwrite !== true && existsSync(target.path)) {
       const result = resultOf(target.path, video, await readFile(target.path), true);
       context.sendProgress(1, "Reused the thumbnail made before");
@@ -141,10 +142,7 @@ function resultOf(path: string, video: string, jpeg: Uint8Array, reused: boolean
     duration: meta.duration ?? 0,
     width: meta.size?.w ?? 0,
     height: meta.size?.h ?? 0,
-    frames: (meta.frames ?? []).map((f) => ({
-      requested: f.timestamp_requested ?? 0,
-      actual: f.timestamp_actual ?? 0,
-    })),
+    frames: framesOf(meta.frames),
     reused,
   };
 }

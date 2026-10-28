@@ -14,9 +14,13 @@ pnpm check          # typecheck, lint, tests
 `pnpm copy-service` reads `../rust-thumbnail-service-public/target/release` unless you pass another folder. `bin/` is
 not committed. The release build needs `--exit-on-stdin-close` (the Worker always passes it).
 
-To install it on a Host, put this folder (or a link to it) in the Host's Plugin directory, with `fyflow-plugin-sdk`
-installed there (`npm install fyflow-plugin-sdk` in the Plugin directory), then Reload. In the desktop app, use
-**Choose folder…** on the Plugins page.
+To install it from the app, run `pnpm plugin-folder` and pick `dist/video-thumbnail` with **Choose folder…** on the
+Plugins page. That folder holds only what a Host loads (the code, `assets/`, `bin/` and a package.json): the app's
+installer copies a folder whole and refuses one holding a link, which this repo's `node_modules` is full of. The
+desktop app provides the SDK by itself.
+
+On a server Host you can instead put a link to this repo in the Plugin directory, with `fyflow-plugin-sdk` installed
+there (`npm install fyflow-plugin-sdk` in the Plugin directory), then Reload.
 
 ## `VideoThumbnail`
 
@@ -47,7 +51,9 @@ last change, and the options, so running a Task again on an unchanged video reus
 **Result:** `{ path, video, duration, width, height, frames: [{ requested, actual }], reused }`. A frame's `actual`
 timestamp differs from the one `requested` when blank frames were skipped.
 
-**Profile config:** `executablePath`, `fontFile`, `outputDir`, each optional.
+**Profile:** the `fyflow-ext.video-thumbnail` section holds `executablePath`, `fontFile` and `outputDir`, each
+optional. `executablePath` and `fontFile` are start-up fields, so a change takes effect at the Host's next Reload.
+`outputDir` is read as each Task is dispatched, and a Flow or one of its Nodes may set its own.
 
 ## How it runs
 
@@ -61,8 +67,8 @@ none. The instance starts the service in `setup()`:
 Each Task is one `POST /make_collage`. Its progress arrives over the WebSocket and goes to the Task's progress. If the
 service dies, the Tasks in flight fail with its last lines of output, and the Worker asks its pool to replace it.
 
-`setup()`, `teardown()` and that last request (`terminateWithError`) are fyflow's, and fyflow-plugin-sdk does not
-promise them yet. See fyflow-app's `.scratch/plugin-sdk-worker-lifecycle/`.
+`setup()`, `teardown()` and that last request (`terminateWithError`) are the Worker lifecycle fyflow-plugin-sdk
+promises since 0.5.0.
 
 **Not in v1:** Allowed roots. Unlike `fyflow.fs`, this Plugin reads any video and writes any path it is given.
 

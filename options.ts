@@ -72,7 +72,7 @@ const OPTION_KEYS = [
 
 const WINDOWS = platform() === "win32";
 
-type Envelope = TaskEnvelope<Record<string, unknown>>;
+type Envelope = TaskEnvelope<Record<string, unknown>, unknown, unknown>;
 
 /** The Node's setting `key`, else the Task input's field of the same name; undefined when neither is there. */
 export function fieldOf(envelope: Envelope, key: string): unknown {

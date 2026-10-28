@@ -6,7 +6,9 @@ import { definePlugin } from "fyflow-plugin-sdk";
 
 const absolutePath = (description: string) => ({ type: "string", minLength: 1, description });
 
-const configSchema = {
+// The Plugin's Profile section. The executable and font are start-up fields, since the service is started with them in
+// `setup()`; `outputDir` is a per-Task field, read as each Task is dispatched, so a Flow or Node may set its own.
+const profileSchema = {
   type: "object",
   properties: {
     executablePath: absolutePath(
@@ -132,8 +134,12 @@ export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
   version: "0.1.0",
   base: import.meta.url,
+  profile: {
+    schema: profileSchema,
+    startup: ["executablePath", "fontFile"],
+  },
   workers: {
-    thumbnail: { url: "./thumbnail.worker.ts", configSchema, settingsSchema, outputSchema },
+    thumbnail: { url: "./thumbnail.worker.ts", settingsSchema, outputSchema },
   },
   nodeTypes: {
     VideoThumbnail: {
@@ -142,6 +148,7 @@ export default definePlugin({
       // thread, sending it up to four Tasks at once, and stopping it after 30 s with none.
       inline: true,
       pool: { maxThreads: 1, maxConcurrentTasks: 4, idleTimeout: 30_000 },
+      profile: ["executablePath", "fontFile", "outputDir"],
       icon: "image",
       description: "Makes a JPEG thumbnail or contact sheet of a video's frames.",
     },

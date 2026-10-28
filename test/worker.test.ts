@@ -23,7 +23,7 @@ describe("VideoThumbnail without a service", () => {
   it("fails setup, naming the Profile's executablePath, when the service is not there", async () => {
     const worker = new VideoThumbnail({ executablePath: join(root, "nowhere", EXECUTABLE) });
     await expect(worker.setup()).rejects.toThrow(
-      /No thumbnail service at .*nowhere.*`executablePath` on this Profile/,
+      /No thumbnail service at .*nowhere.*`executablePath` in the fyflow-ext.video-thumbnail section of this Node.s Profile/,
     );
   });
 });
@@ -33,12 +33,16 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
   () => {
     let dir: string;
     let worker: VideoThumbnail;
+    // The Profile's `outputDir` reaches each Task, as the Host gives it, under `settings.profile`.
     const run = (settings: Record<string, unknown>, input: unknown = {}, ctx = context()) =>
-      worker.run({ settings, input }, ctx) as Promise<ThumbnailResult>;
+      worker.run(
+        { settings: { ...settings, profile: { outputDir: dir } }, input },
+        ctx,
+      ) as Promise<ThumbnailResult>;
 
     beforeAll(async () => {
       dir = await mkdtemp(join(tmpdir(), "video-thumbnail-test-"));
-      worker = new VideoThumbnail({ outputDir: dir });
+      worker = new VideoThumbnail({});
       await worker.setup();
     });
     afterAll(async () => {

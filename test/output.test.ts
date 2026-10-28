@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_OUTPUT_DIR, metadataOf, outputOf } from "../output.ts";
+import { DEFAULT_OUTPUT_DIR, framesOf, metadataOf, outputOf } from "../output.ts";
 
 const root = process.platform === "win32" ? "C:\\work" : "/work";
 const video = join(root, "videos", "Movie.Final.mp4");
@@ -42,7 +42,9 @@ describe("outputOf", () => {
 
   it("refuses a relative output or outputDir", () => {
     expect(() => of("thumbs")).toThrow(/`output` must be an absolute path/);
-    expect(() => of(undefined, "thumbs")).toThrow(/`outputDir` on this Profile must be an absolute path/);
+    expect(() => of(undefined, "thumbs")).toThrow(
+      /`outputDir` must be an absolute path: "thumbs" is relative; fix it where it is set/,
+    );
   });
 });
 
@@ -67,5 +69,23 @@ describe("metadataOf", () => {
   it("is null for a JPEG without one", () => {
     expect(metadataOf(Buffer.from([0xff, 0xd8, 0xff, 0xda, 0x00, 0x02]))).toBeNull();
     expect(metadataOf(jpeg("not json"))).toBeNull();
+  });
+});
+
+describe("framesOf", () => {
+  it("reads each frame's timestamps, leaving out the null the service writes for a frame it could not decode", () => {
+    const frames = [
+      { timestamp_requested: 10, timestamp_actual: 9.5, rect: {} },
+      null,
+      { timestamp_requested: 30, timestamp_actual: 31 },
+    ];
+    expect(framesOf(frames)).toEqual([
+      { requested: 10, actual: 9.5 },
+      { requested: 30, actual: 31 },
+    ]);
+  });
+
+  it("is empty without frames", () => {
+    expect(framesOf(undefined)).toEqual([]);
   });
 });

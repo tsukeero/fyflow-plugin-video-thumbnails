@@ -15,13 +15,16 @@ import { EXECUTABLE, serviceDir } from "../service.ts";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const video = join(root, "test", "fixtures", "sample.mp4");
 
+/** `config` stands in for the Profile's start-up fields, which the Host gives each Node Type as its config. */
 const registryOf = (config: Record<string, unknown> = {}): RegistryDocument => ({
   workers: { ...plugin.workers },
   nodeTypes: Object.fromEntries(
-    Object.entries(plugin.nodeTypes ?? {}).map(([name, { icon: _i, description: _d, ...declaration }]) => [
-      name,
-      { ...(declaration as PluginNodeType), config },
-    ]),
+    Object.entries(plugin.nodeTypes ?? {}).map(
+      ([name, { icon: _i, description: _d, profile: _p, ...declaration }]) => [
+        name,
+        { ...(declaration as PluginNodeType), config },
+      ],
+    ),
   ),
 });
 
@@ -67,9 +70,10 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
     });
 
     it("runs a Flow: fyflow sets the Worker up, so its service makes the thumbnail", async () => {
-      const runtime = createRuntime(registryOf({ outputDir: dir }), {}, { base: plugin.base });
+      // No Host here to add the per-Task `outputDir` under `settings.profile`, so the Node names the folder.
+      const runtime = createRuntime(registryOf(), {}, { base: plugin.base });
       try {
-        const { done } = runtime.start(flowOf({ renderTimestamps: true }), { path: video });
+        const { done } = runtime.start(flowOf({ output: dir, renderTimestamps: true }), { path: video });
         const state = await done;
         expect(state.outcome).toBe("completed");
         const thumb = Object.values(state.nodes).find((n) => n.nodeId === "thumb");
