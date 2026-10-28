@@ -2,7 +2,7 @@
 // beside the Host. Every option may be a Node setting or a field of the Task input; a setting wins. fyflow's schema
 // subset cannot say which fields go with which mode, so the settings schema lists them all and the Worker checks the
 // merged options itself (./options.ts).
-import { definePlugin } from "fyflow-plugin-sdk";
+import { CPU_GROUP, DISK_GROUP, definePlugin } from "fyflow-plugin-sdk";
 
 const absolutePath = (description: string) => ({ type: "string", minLength: 1, description });
 
@@ -149,6 +149,10 @@ export default definePlugin({
       inline: true,
       pool: { maxThreads: 1, maxConcurrentTasks: 4, idleTimeout: 30_000 },
       profile: ["executablePath", "fontFile", "outputDir"],
+      // The service makes each thumbnail on one thread (its FFmpeg decoders keep their default of one), so a Task
+      // keeps one processor busy. It reads the video with a few seeks per frame, or, when it falls back for a damaged
+      // one, reads nearly all of it once or twice: so it shares the Host's disk budget too.
+      groups: [CPU_GROUP, DISK_GROUP],
       icon: "image",
       description: "Makes a JPEG thumbnail or contact sheet of a video's frames.",
     },

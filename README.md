@@ -64,6 +64,10 @@ none. The instance starts the service in `setup()`:
 - with its progress WebSocket on;
 - with `--exit-on-stdin-close`, so it dies with the Host however the Host ends.
 
+Each Task takes one slot of the Host's `cpu` group and one of its `disk` group while it runs. The service makes
+each thumbnail on one thread, so a Task keeps one processor busy. It usually reads the video with a few seeks per
+frame, but for a damaged video it falls back to reading nearly all of it, once or twice.
+
 Each Task is one `POST /make_collage`. Its progress arrives over the WebSocket and goes to the Task's progress. If the
 service dies, the Tasks in flight fail with its last lines of output, and the Worker asks its pool to replace it.
 

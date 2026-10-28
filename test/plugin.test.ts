@@ -2,12 +2,12 @@
 // app reads, and a Flow run on it.
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type FlowDefinition, type RegistryDocument, validateDefinition } from "fyflow-orchestration";
 import { createRuntime } from "fyflow-orchestration/scheduler";
-import type { PluginNodeType } from "fyflow-plugin-sdk";
+import { CPU_GROUP, DISK_GROUP, type PluginNodeType } from "fyflow-plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import plugin from "../plugin.ts";
 import { EXECUTABLE, serviceDir } from "../service.ts";
@@ -26,6 +26,11 @@ const registryOf = (config: Record<string, unknown> = {}): RegistryDocument => (
       ],
     ),
   ),
+  // The `disk` and `cpu` groups its Node Type names, as the Host's built-in Plugin declares them.
+  groups: {
+    [DISK_GROUP]: { type: "ConcurrentLimitGroup", config: { limit: 4 } },
+    [CPU_GROUP]: { type: "ConcurrentLimitGroup", config: { limit: availableParallelism() } },
+  },
 });
 
 /** What `validateDefinition` judges a Flow against: the registry's workers and Node Types, and no predicates. */
