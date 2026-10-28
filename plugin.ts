@@ -3,6 +3,7 @@
 // subset cannot say which fields go with which mode, so the settings schema lists them all and the Worker checks the
 // merged options itself (./options.ts).
 import { CPU_GROUP, DISK_GROUP, definePlugin } from "fyflow-plugin-sdk";
+import { VIDEO_EXTENSIONS } from "./formats.ts";
 
 const absolutePath = (description: string) => ({ type: "string", minLength: 1, description });
 
@@ -130,6 +131,45 @@ const outputSchema = {
   },
 };
 
+const videoFilesSettings = {
+  type: "object",
+  properties: {
+    extensions: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string", minLength: 1 },
+      description: `The extensions a video may have; left empty, ${VIDEO_EXTENSIONS.join(", ")}`,
+    },
+    checkContent: {
+      type: "boolean",
+      description:
+        "Also read each file's first bytes, and keep it only if they are a video container's (on unless set off)",
+    },
+  },
+  additionalProperties: false,
+};
+
+const videoFilesOutput = {
+  type: "object",
+  required: ["entries", "skipped"],
+  properties: {
+    entries: {
+      type: "array",
+      description: "the videos, each as it came (a path as `{ path }`), for a map over `entries`",
+      items: { type: "object", required: ["path"], properties: { path: { type: "string" } } },
+    },
+    skipped: {
+      type: "array",
+      description: "the rest, and why each was left out",
+      items: {
+        type: "object",
+        required: ["path", "reason"],
+        properties: { path: { type: "string" }, reason: { type: "string" } },
+      },
+    },
+  },
+};
+
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
   version: "0.1.0",
@@ -140,6 +180,11 @@ export default definePlugin({
   },
   workers: {
     thumbnail: { url: "./thumbnail.worker.ts", settingsSchema, outputSchema },
+    videoFiles: {
+      url: "./video-files.worker.ts",
+      settingsSchema: videoFilesSettings,
+      outputSchema: videoFilesOutput,
+    },
   },
   nodeTypes: {
     VideoThumbnail: {
@@ -155,6 +200,15 @@ export default definePlugin({
       groups: [CPU_GROUP, DISK_GROUP],
       icon: "image",
       description: "Makes a JPEG thumbnail or contact sheet of a video's frames.",
+    },
+    VideoFiles: {
+      worker: "videoFiles",
+      // Reads at most a few hundred bytes of each file, and decodes nothing: on the Host's thread, within the disk
+      // budget the file system Node Types share.
+      inline: true,
+      groups: [DISK_GROUP],
+      icon: "filter",
+      description: "Keeps the videos of a folder listing or a list of paths, by extension and by content.",
     },
   },
 });

@@ -1,7 +1,8 @@
 # fyflow-ext.video-thumbnail
 
-A [fyflow-app](../fyflow-app) Plugin that makes JPEG thumbnails and contact sheets of videos. The decoding is done by
-[thumbs-collage](../rust-thumbnail-service-public), a Rust and FFmpeg service the Worker runs beside the Host.
+A [fyflow-app](../fyflow-app) Plugin that makes JPEG thumbnails and contact sheets of videos, and finds the videos
+among files. The decoding is done by [thumbs-collage](../rust-thumbnail-service-public), a Rust and FFmpeg service
+the Worker runs beside the Host.
 
 ## Set it up
 
@@ -54,6 +55,28 @@ timestamp differs from the one `requested` when blank frames were skipped.
 **Profile:** the `fyflow-ext.video-thumbnail` section holds `executablePath`, `fontFile` and `outputDir`, each
 optional. `executablePath` and `fontFile` are start-up fields, so a change takes effect at the Host's next Reload.
 `outputDir` is read as each Task is dispatched, and a Flow or one of its Nodes may set its own.
+
+## `VideoFiles`
+
+Keeps the videos among the `entries` that reach it, which are `ListFolder`'s entries or absolute paths. It hands on
+`{ entries, skipped }`: the videos, each as it came (a path as `{ path }`), and the rest with the reason each was left
+out. Put a `map` over `entries` after it, with a `VideoThumbnail` in its branch, for one thumbnail per video. The
+thumbnail service never sees a file that isn't a video, so no Task fails on one.
+
+A file is a video when:
+
+1. its extension is one of `extensions`. Left empty, that is mp4, m4v, mov, mkv, webm, avi, wmv, asf, flv, f4v,
+   mpg, mpeg, m2ts, mts, ts, 3gp, 3g2, ogv, vob, rm, rmvb and divx; and
+2. unless `checkContent` is off, its first bytes are a video container's signature: MP4/MOV (`ftyp`, except
+   audio-only brands like M4A), Matroska/WebM, AVI, ASF/WMV, FLV, MPEG program or transport stream, Ogg or
+   RealMedia.
+
+The signature names the container, not what it holds: an `.mkv` or `.ogv` with only audio in it passes, and the
+thumbnail Task then fails on it. A video with an extension not in the list is left out even if its content is a
+video's. Folders and links in a listing are left out, and so are files it cannot read.
+
+It decodes nothing and reads at most 512 bytes of each file, 16 files at a time. It takes one slot of the `disk`
+group while it runs.
 
 ## How it runs
 

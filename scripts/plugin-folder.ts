@@ -8,7 +8,16 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 
 /** What the Plugin needs at run time, beside a package.json of its own. */
-const FILES = ["plugin.ts", "thumbnail.worker.ts", "options.ts", "output.ts", "service.ts", "README.md"];
+const FILES = [
+  "plugin.ts",
+  "thumbnail.worker.ts",
+  "video-files.worker.ts",
+  "formats.ts",
+  "options.ts",
+  "output.ts",
+  "service.ts",
+  "README.md",
+];
 const FOLDERS = ["assets", "bin"];
 
 /** Makes the Plugin folder at `to`, replacing what is there. */

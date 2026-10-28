@@ -37,7 +37,15 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
     it("holds the Plugin's code, its font and its service, and nothing a Host does not load", async () => {
       const paths = (await entriesOf(to)).map((e) => e.path);
       expect(paths.filter((p) => !p.includes("/"))).toEqual(
-        expect.arrayContaining(["plugin.ts", "thumbnail.worker.ts", "options.ts", "output.ts", "service.ts"]),
+        expect.arrayContaining([
+          "plugin.ts",
+          "thumbnail.worker.ts",
+          "video-files.worker.ts",
+          "formats.ts",
+          "options.ts",
+          "output.ts",
+          "service.ts",
+        ]),
       );
       expect(paths).toContain("assets/fonts/DejaVuSans.ttf");
       expect(paths).toContain(`bin/${process.platform}-${process.arch}/${EXECUTABLE}`);

@@ -89,5 +89,37 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
         await runtime.shutdown();
       }
     });
+
+    it("runs VideoFiles before a map of VideoThumbnail: one thumbnail per video, none for the rest", async () => {
+      const flow: FlowDefinition = {
+        flowId: "thumbnails",
+        version: 1,
+        entry: "videos",
+        nodes: [
+          { id: "videos", kind: "task", type: "VideoFiles", edges: [{ to: "each" }] },
+          { id: "each", kind: "map", over: "entries", branch: "thumb" },
+          {
+            id: "thumb",
+            kind: "task",
+            type: "VideoThumbnail",
+            settings: { output: dir },
+            edges: [{ to: "gather" }],
+          },
+          { id: "gather", kind: "join", of: "each", edges: [{ to: "done" }] },
+          { id: "done", kind: "end", outcome: "completed" },
+        ],
+      };
+      expect(validateDefinition(flow, judgedBy())).toEqual([]);
+      const runtime = createRuntime(registryOf(), {}, { base: plugin.base });
+      try {
+        const { done } = runtime.start(flow, { entries: [video, join(root, "README.md")] });
+        const state = await done;
+        expect(state.outcome).toBe("completed");
+        const thumbs = Object.values(state.nodes).filter((n) => n.nodeId === "thumb");
+        expect(thumbs.map((n) => (n.result as { video?: string } | undefined)?.video)).toEqual([video]);
+      } finally {
+        await runtime.shutdown();
+      }
+    });
   },
 );
