@@ -12,6 +12,7 @@ const FILES = [
   "plugin.ts",
   "thumbnail.worker.ts",
   "video-files.worker.ts",
+  "is-video.worker.ts",
   "formats.ts",
   "options.ts",
   "output.ts",

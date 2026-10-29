@@ -90,13 +90,22 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
       }
     });
 
-    it("runs VideoFiles before a map of VideoThumbnail: one thumbnail per video, none for the rest", async () => {
+    it("runs VideoFiles before a map of VideoThumbnail: one thumbnail per video, and none without one", async () => {
       const flow: FlowDefinition = {
         flowId: "thumbnails",
         version: 1,
         entry: "videos",
         nodes: [
-          { id: "videos", kind: "task", type: "VideoFiles", edges: [{ to: "each" }] },
+          {
+            id: "videos",
+            kind: "task",
+            type: "VideoFiles",
+            // Around the map when there are no videos: a map over none never reaches its join.
+            edges: [
+              { to: "each", when: { path: "outcome.result.count", op: "gt", value: 0 } },
+              { to: "done" },
+            ],
+          },
           { id: "each", kind: "map", over: "entries", branch: "thumb" },
           {
             id: "thumb",
@@ -117,6 +126,51 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
         expect(state.outcome).toBe("completed");
         const thumbs = Object.values(state.nodes).filter((n) => n.nodeId === "thumb");
         expect(thumbs.map((n) => (n.result as { video?: string } | undefined)?.video)).toEqual([video]);
+        const none = await runtime.start(flow, { entries: [join(root, "README.md")] }).done;
+        expect(none.outcome).toBe("completed");
+        expect(Object.values(none.nodes).some((n) => n.nodeId === "thumb")).toBe(false);
+      } finally {
+        await runtime.shutdown();
+      }
+    });
+
+    it("routes on IsVideo in a map: each video to VideoThumbnail, the rest past it", async () => {
+      const flow: FlowDefinition = {
+        flowId: "thumbnails-by-item",
+        version: 1,
+        entry: "each",
+        nodes: [
+          { id: "each", kind: "map", over: "paths", branch: "check" },
+          {
+            id: "check",
+            kind: "task",
+            type: "IsVideo",
+            edges: [
+              { to: "thumb", when: { path: "outcome.result.video", op: "eq", value: true } },
+              { to: "gather" }, // the rest: fyflow wants one Edge without a condition
+            ],
+          },
+          {
+            id: "thumb",
+            kind: "task",
+            type: "VideoThumbnail",
+            // IsVideo's result is what reaches it, and has the `path` it reads.
+            settings: { output: dir },
+            edges: [{ to: "gather" }],
+          },
+          { id: "gather", kind: "join", of: "each", edges: [{ to: "done" }] },
+          { id: "done", kind: "end", outcome: "completed" },
+        ],
+      };
+      expect(validateDefinition(flow, judgedBy())).toEqual([]);
+      const runtime = createRuntime(registryOf(), {}, { base: plugin.base });
+      try {
+        const { done } = runtime.start(flow, { paths: [join(root, "README.md"), video] });
+        const state = await done;
+        expect(state.outcome).toBe("completed");
+        const ran = (id: string) => Object.values(state.nodes).filter((n) => n.nodeId === id);
+        expect(ran("check").map((n) => (n.result as { video: boolean }).video)).toEqual([false, true]);
+        expect(ran("thumb").map((n) => (n.result as { video?: string } | undefined)?.video)).toEqual([video]);
       } finally {
         await runtime.shutdown();
       }

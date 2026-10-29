@@ -56,12 +56,27 @@ timestamp differs from the one `requested` when blank frames were skipped.
 optional. `executablePath` and `fontFile` are start-up fields, so a change takes effect at the Host's next Reload.
 `outputDir` is read as each Task is dispatched, and a Flow or one of its Nodes may set its own.
 
-## `VideoFiles`
+## Finding the videos: `VideoFiles` and `IsVideo`
 
-Keeps the videos among the `entries` that reach it, which are `ListFolder`'s entries or absolute paths. It hands on
-`{ entries, skipped }`: the videos, each as it came (a path as `{ path }`), and the rest with the reason each was left
-out. Put a `map` over `entries` after it, with a `VideoThumbnail` in its branch, for one thumbnail per video. The
-thumbnail service never sees a file that isn't a video, so no Task fails on one.
+Two Node Types share one test of whether a file is a video (below):
+
+- **`VideoFiles`** filters a whole list in one Task. It finds the list at `list` in the Task input (`entries` unless
+  set, so it fits right after `ListFolder`; `.` for an input that is the list itself), and the path in each item at
+  `pathKey` (`path` unless set; an item that is a string is the path). It hands on `{ entries, skipped }`: the
+  videos, each item as it came (a path as `{ path }`), and the rest with the reason each was left out. Put a `map`
+  over `entries` after it, with a `VideoThumbnail` in its branch, for one thumbnail per video. Its result also has
+  `count`, the number of videos. A `map` over an empty list never reaches its join, and the Run is stuck, so when
+  a folder may have no videos, route on `outcome.result.count` greater than `0` to the `map`, with the default Edge
+  going around it.
+- **`IsVideo`** checks one file, for its Edges to route on, like a gate that reads the file. The file is its `path`
+  setting, else the Task input when it is a path, else the path at `pathKey` in it, so inside a `map` it checks each
+  item. It hands on `{ path, video, container?, reason? }`. Give it an Edge with the condition
+  `outcome.result.video` equals `true` to the Nodes for a video, and one without a condition for the rest (fyflow
+  wants one default Edge). Its result has `path` at the top, so a `VideoThumbnail` after it takes it as it is. A
+  file that isn't a video is a result, not a failure.
+
+Both key paths are names joined by dots, such as `listing.files` or `file.path`. For anything they can't say, give
+the Node a JSONata transform of its input instead.
 
 A file is a video when:
 
@@ -73,10 +88,11 @@ A file is a video when:
 
 The signature names the container, not what it holds: an `.mkv` or `.ogv` with only audio in it passes, and the
 thumbnail Task then fails on it. A video with an extension not in the list is left out even if its content is a
-video's. Folders and links in a listing are left out, and so are files it cannot read.
+video's. Folders and links in a listing are left out, and so are files that can't be read.
 
-It decodes nothing and reads at most 512 bytes of each file, 16 files at a time. It takes one slot of the `disk`
-group while it runs.
+Neither decodes anything: each reads at most 512 bytes of a file. `VideoFiles` reads 16 files at a time and takes
+one slot of the `disk` group while it runs. `IsVideo` takes none, since one small read per item shouldn't wait
+behind copies.
 
 ## How it runs
 

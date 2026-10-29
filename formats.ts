@@ -3,6 +3,7 @@
 // so in their brand, and are refused.
 import { open } from "node:fs/promises";
 import { extname } from "node:path";
+import { absolute } from "./options.ts";
 
 /** The extensions a video has unless a Node says otherwise: those FFmpeg reads that are mostly video. */
 export const VIDEO_EXTENSIONS: readonly string[] = Object.freeze([
@@ -70,6 +71,46 @@ export function containerOf(head: Uint8Array): string | null {
   if (ascii(0, 4) === "OggS") return "ogg";
   if (ascii(0, 4) === ".RMF") return "realmedia";
   return null;
+}
+
+/** What a Node knows of one file: a video, in which container if its content was read, or why it is not one. */
+export type Verdict = { video: true; container?: string } | { video: false; reason: string };
+
+/**
+ * Whether the file at `path` is a video: it has one of the `wanted` extensions and, with `checkContent`, a video
+ * container's signature. A file it cannot read is not one, saying why.
+ */
+export async function verdictOf(
+  path: string,
+  wanted: ReadonlySet<string>,
+  checkContent: boolean,
+): Promise<Verdict> {
+  if (!absolute(path)) return { video: false, reason: "not an absolute path" };
+  if (!hasExtension(path, wanted)) return { video: false, reason: "not a video extension" };
+  if (!checkContent) return { video: true };
+  try {
+    const container = containerOf(await headOf(path));
+    return container === null
+      ? { video: false, reason: "not a video container" }
+      : { video: true, container };
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    return { video: false, reason: `unreadable${typeof code === "string" ? ` (${code})` : ""}` };
+  }
+}
+
+/**
+ * The value at `keyPath` in `value`: names and list indexes joined by dots, such as `listing.entries` or `file.path`;
+ * `.` is `value` itself. Undefined when there is nothing there.
+ */
+export function valueAt(value: unknown, keyPath: string): unknown {
+  if (keyPath === ".") return value;
+  let at = value;
+  for (const key of keyPath.split(".")) {
+    if (typeof at !== "object" || at === null) return undefined;
+    at = (at as Record<string, unknown>)[key];
+  }
+  return at;
 }
 
 /** The first `HEAD_BYTES` of the file at `path`, or fewer if it is shorter. */

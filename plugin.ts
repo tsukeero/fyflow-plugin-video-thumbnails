@@ -131,28 +131,74 @@ const outputSchema = {
   },
 };
 
+const keyPath = (description: string) => ({ type: "string", minLength: 1, description });
+
+/** What `VideoFiles` and `IsVideo` take as a video. */
+const videoTest = {
+  extensions: {
+    type: "array",
+    minItems: 1,
+    items: { type: "string", minLength: 1 },
+    description: `The extensions a video may have; left empty, ${VIDEO_EXTENSIONS.join(", ")}`,
+  },
+  checkContent: {
+    type: "boolean",
+    description:
+      "Also read each file's first bytes, and take it as a video only if they are a video container's (on unless set off)",
+  },
+};
+
 const videoFilesSettings = {
   type: "object",
   properties: {
-    extensions: {
-      type: "array",
-      minItems: 1,
-      items: { type: "string", minLength: 1 },
-      description: `The extensions a video may have; left empty, ${VIDEO_EXTENSIONS.join(", ")}`,
-    },
-    checkContent: {
-      type: "boolean",
-      description:
-        "Also read each file's first bytes, and keep it only if they are a video container's (on unless set off)",
-    },
+    list: keyPath(
+      "Where the list is in the Task input, a key path such as `entries` or `listing.files`, or `.` for the input itself; left empty, `entries`",
+    ),
+    pathKey: keyPath(
+      "Where the path is in each item that is not a path itself, such as `path` or `file.path`; left empty, `path`",
+    ),
+    ...videoTest,
   },
   additionalProperties: false,
 };
 
+const isVideoSettings = {
+  type: "object",
+  properties: {
+    path: absolutePath(
+      "The file, an absolute path; left empty, the Task input, or the path at `pathKey` in it",
+    ),
+    pathKey: keyPath(
+      "Where the path is in the Task input when it is not a path itself, such as `path` or `file.path`; left empty, `path`",
+    ),
+    ...videoTest,
+  },
+  additionalProperties: false,
+};
+
+const isVideoOutput = {
+  type: "object",
+  required: ["path", "video"],
+  properties: {
+    path: { type: "string", description: "the file's path" },
+    video: { type: "boolean", description: "whether it is a video: route on it with `outcome.result.video`" },
+    container: {
+      type: "string",
+      description: "the container its first bytes say it is, when they were read",
+    },
+    reason: { type: "string", description: "why it is not a video" },
+  },
+};
+
 const videoFilesOutput = {
   type: "object",
-  required: ["entries", "skipped"],
+  required: ["count", "entries", "skipped"],
   properties: {
+    count: {
+      type: "integer",
+      description:
+        "how many videos: a map over no entries never reaches its join and the Run is stuck, so route around it on 0",
+    },
     entries: {
       type: "array",
       description: "the videos, each as it came (a path as `{ path }`), for a map over `entries`",
@@ -185,6 +231,7 @@ export default definePlugin({
       settingsSchema: videoFilesSettings,
       outputSchema: videoFilesOutput,
     },
+    isVideo: { url: "./is-video.worker.ts", settingsSchema: isVideoSettings, outputSchema: isVideoOutput },
   },
   nodeTypes: {
     VideoThumbnail: {
@@ -209,6 +256,13 @@ export default definePlugin({
       groups: [DISK_GROUP],
       icon: "filter",
       description: "Keeps the videos of a folder listing or a list of paths, by extension and by content.",
+    },
+    IsVideo: {
+      worker: "isVideo",
+      // One read of a few hundred bytes: too little to wait for a disk slot behind copies, even once per item of a map.
+      inline: true,
+      icon: "filter",
+      description: "Says whether one file is a video, for its Edges to route on.",
     },
   },
 });

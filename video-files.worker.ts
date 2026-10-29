@@ -1,22 +1,22 @@
-// The `VideoFiles` Worker: of the entries that reach it (`ListFolder`'s, or absolute paths), the videos, each as it
-// came, and why each other one was left out. A video has one of the Node's extensions and, unless the Node turns it
-// off, a video container's signature in its first bytes (./formats.ts). Nothing is decoded: it is a filter, cheap
-// enough to put before every `VideoThumbnail`.
+// The `VideoFiles` Worker: of the list that reaches it (`ListFolder`'s entries, or absolute paths), the videos, each
+// as it came, and why each other one was left out. Where the list is in the Task input, and where the path is in each
+// item, are the Node's settings. A video has one of the Node's extensions and, unless the Node turns it off, a video
+// container's signature in its first bytes (./formats.ts). Nothing is decoded.
 import type { TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
-import { containerOf, hasExtension, headOf, normalized, VIDEO_EXTENSIONS } from "./formats.ts";
-import { absolute } from "./options.ts";
+import { normalized, VIDEO_EXTENSIONS, valueAt, verdictOf } from "./formats.ts";
 
 export interface Settings {
+  list?: string;
+  pathKey?: string;
   extensions?: string[];
   checkContent?: boolean;
 }
 
-/** An entry as it reached the Node: an absolute path, or an object with one, such as a `ListFolder` entry. */
-export type Entry = string | { path: string; kind?: string; [key: string]: unknown };
-
 export interface VideoFilesResult {
-  /** The videos, as objects: each object entry as it came, and each path as `{ path }`. */
-  entries: { path: string; [key: string]: unknown }[];
+  /** How many videos: a `map` over no `entries` can never reach its join, so route around it when this is 0. */
+  count: number;
+  /** The videos, as objects: each object item as it came, and each path as `{ path }`. */
+  entries: Record<string, unknown>[];
   /** The rest, in the order they came, and why. */
   skipped: { path: string; reason: string }[];
 }
@@ -26,68 +26,71 @@ const AT_ONCE = 16;
 
 export default class VideoFiles implements Worker<Settings, unknown, VideoFilesResult> {
   async run(envelope: TaskEnvelope<Settings>, context: WorkerContext): Promise<VideoFilesResult> {
-    const { extensions = [...VIDEO_EXTENSIONS], checkContent = true } = envelope.settings;
+    const {
+      list = "entries",
+      pathKey = "path",
+      extensions = [...VIDEO_EXTENSIONS],
+      checkContent = true,
+    } = envelope.settings;
     const wanted = normalized(extensions);
-    const given = entriesOf(envelope.input);
+    const items = itemsAt(envelope.input, list);
+    const paths = items.map((item, i) => pathOf(item, pathKey, `${listName(list)}[${i}]`));
 
-    // Each entry's verdict, in its place, however the reads finish.
-    const verdicts: (string | null)[] = new Array(given.length).fill(null);
+    // Each item's reason to be left out, in its place, however the reads finish; null for a video.
+    const reasons: (string | null)[] = new Array(items.length).fill(null);
     let next = 0;
     let done = 0;
     const lane = async () => {
-      while (next < given.length) {
+      while (next < items.length) {
         const index = next++;
         context.signal.throwIfAborted();
-        verdicts[index] = await reasonToSkip(given[index] as Entry, wanted, checkContent);
+        const item = items[index];
+        const kind =
+          typeof item === "object" && item !== null ? (item as { kind?: unknown }).kind : undefined;
+        if (kind !== undefined && kind !== "file") reasons[index] = `a ${kind}`;
+        else {
+          const verdict = await verdictOf(paths[index] as string, wanted, checkContent);
+          reasons[index] = verdict.video ? null : verdict.reason;
+        }
         done++;
         if (done % 100 === 0)
-          context.sendProgress(done / given.length, `Looked at ${done} of ${given.length}`);
+          context.sendProgress(done / items.length, `Looked at ${done} of ${items.length}`);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(AT_ONCE, given.length) }, lane));
+    await Promise.all(Array.from({ length: Math.min(AT_ONCE, items.length) }, lane));
 
-    const result: VideoFilesResult = { entries: [], skipped: [] };
-    given.forEach((entry, index) => {
-      const object = typeof entry === "string" ? { path: entry } : entry;
-      const reason = verdicts[index] ?? null;
-      if (reason === null) result.entries.push(object);
-      else result.skipped.push({ path: object.path, reason });
+    const result: VideoFilesResult = { count: 0, entries: [], skipped: [] };
+    items.forEach((item, index) => {
+      const path = paths[index] as string;
+      const reason = reasons[index] ?? null;
+      if (reason === null)
+        result.entries.push(typeof item === "string" ? { path } : (item as Record<string, unknown>));
+      else result.skipped.push({ path, reason });
     });
-    context.sendProgress(1, `${result.entries.length} of ${given.length} are videos`);
+    result.count = result.entries.length;
+    context.sendProgress(1, `${result.count} of ${items.length} are videos`);
     return result;
   }
 }
 
-/** The Task input's `entries`, each an absolute path or an object with one; refused, saying why, if not. */
-function entriesOf(input: unknown): Entry[] {
-  const entries =
-    typeof input === "object" && input !== null && !Array.isArray(input)
-      ? (input as Record<string, unknown>).entries
-      : undefined;
-  if (!Array.isArray(entries))
+const listName = (list: string) => (list === "." ? "the Task input" : `\`${list}\``);
+
+/** The list at `list` in the Task input; refused, saying where it looked, if there is none. */
+function itemsAt(input: unknown, list: string): unknown[] {
+  const items = valueAt(input, list);
+  if (!Array.isArray(items))
     throw new Error(
-      "No `entries` in the Task input: pass a list of paths, or put this Node after a `ListFolder`",
+      `No list at ${listName(list)} in the Task input: put this Node after a \`ListFolder\`, or set \`list\` to where the list is`,
     );
-  entries.forEach((entry, i) => {
-    const path = typeof entry === "object" && entry !== null ? (entry as { path?: unknown }).path : entry;
-    if (typeof path !== "string")
-      throw new Error(`\`entries[${i}]\` must be a path or an object with one, not ${JSON.stringify(entry)}`);
-  });
-  return entries as Entry[];
+  return items;
 }
 
-/** Why `entry` is not a video, or null when it is one. */
-async function reasonToSkip(entry: Entry, wanted: ReadonlySet<string>, checkContent: boolean) {
-  const path = typeof entry === "string" ? entry : entry.path;
-  if (typeof entry !== "string" && entry.kind !== undefined && entry.kind !== "file")
-    return `a ${entry.kind}`;
-  if (!absolute(path)) return "not an absolute path";
-  if (!hasExtension(path, wanted)) return "not a video extension";
-  if (!checkContent) return null;
-  try {
-    return containerOf(await headOf(path)) === null ? "not a video container" : null;
-  } catch (error) {
-    const code = (error as { code?: unknown }).code;
-    return `unreadable${typeof code === "string" ? ` (${code})` : ""}`;
-  }
+/** The absolute path `item` names: the item itself when it is a string, else the string at `pathKey` in it. */
+function pathOf(item: unknown, pathKey: string, name: string): string {
+  const path = typeof item === "string" ? item : valueAt(item, pathKey);
+  if (typeof path !== "string")
+    throw new Error(
+      `${name} has no path at \`${pathKey}\`: set \`pathKey\` to where its path is (${JSON.stringify(item)})`,
+    );
+  return path;
 }
