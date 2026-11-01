@@ -115,14 +115,18 @@ describe("IsVideo", () => {
       video: false,
       reason: "not a video container",
     });
-    expect(await check({}, { path: at("gone.mp4") })).toMatchObject({
+    expect(await check(at("gone.mp4"))).toMatchObject({
       video: false,
       reason: "unreadable (ENOENT)",
     });
   });
 
-  it("takes its path setting over the input, else the path at pathKey", async () => {
-    expect(await check({ path: at("fake.mkv") }, { path: at("movie.mp4") })).toMatchObject({ video: true });
+  it("takes the path at pathKey in the input, never a setting", async () => {
+    expect(await check({ path: at("fake.mkv") }, { path: at("movie.mp4") } as IsVideoSettings)).toMatchObject(
+      {
+        video: false,
+      },
+    );
     expect(await check({ file: { at: at("movie.mp4") } }, { pathKey: "file.at" })).toMatchObject({
       video: true,
     });

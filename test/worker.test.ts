@@ -62,14 +62,13 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
     });
 
     it("reuses the thumbnail it made before for the same video and options, unless told to overwrite", async () => {
-      const first = await run({ path: video, selection: { mode: "uniform", frames: 2 } });
-      const again = await run({ path: video, selection: { mode: "uniform", frames: 2 } });
+      const first = await run({ selection: { mode: "uniform", frames: 2 } }, { path: video });
+      const again = await run({ selection: { mode: "uniform", frames: 2 } }, { path: video });
       expect(again).toEqual({ ...first, reused: true });
-      const overwritten = await run({
-        path: video,
-        selection: { mode: "uniform", frames: 2 },
-        overwrite: true,
-      });
+      const overwritten = await run(
+        { selection: { mode: "uniform", frames: 2 }, overwrite: true },
+        { path: video },
+      );
       expect(overwritten).toMatchObject({ path: first.path, reused: false });
     });
 
@@ -81,15 +80,16 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
     });
 
     it("skips the black opening when asked for a frame there", async () => {
-      const result = await run({ path: video, selection: { mode: "timestamps", timestamps: [0.2] } });
+      const result = await run({ selection: { mode: "timestamps", timestamps: [0.2] } }, { path: video });
       expect(result.frames[0]?.requested).toBe(0.2);
       expect(result.frames[0]?.actual).toBeGreaterThan(1);
     });
 
     it("makes a contact sheet with the advanced layout and timestamps from the bundled font", async () => {
       const result = await run(
-        { path: video },
+        {},
         {
+          path: video,
           selection: { mode: "timestamps", timestamps: [2, 4] },
           collage: {
             mode: "advanced",
@@ -108,21 +108,21 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
     });
 
     it("fails a Task on a video that is not there, or not a video, saying so", async () => {
-      await expect(run({ path: join(dir, "missing.mp4") })).rejects.toThrow(/No video at .*missing\.mp4/);
+      await expect(run({}, { path: join(dir, "missing.mp4") })).rejects.toThrow(/No video at .*missing\.mp4/);
       const text = join(dir, "not-a-video.mp4");
       await writeFile(text, "hello");
-      await expect(run({ path: text })).rejects.toThrow(/The thumbnail service failed/);
+      await expect(run({}, { path: text })).rejects.toThrow(/The thumbnail service failed/);
     });
 
     it("fails a Task whose options are wrong before asking the service", async () => {
-      await expect(run({ path: video }, { collage: { mode: "grid" } })).rejects.toThrow(/`collage.rows`/);
+      await expect(run({}, { path: video, collage: { mode: "grid" } })).rejects.toThrow(/`collage.rows`/);
     });
 
     it("stops at once when the Task is Cancelled", async () => {
       const controller = new AbortController();
       controller.abort(new Error("Cancelled"));
       const ctx = { ...context(), signal: controller.signal };
-      await expect(run({ path: video, overwrite: true }, {}, ctx)).rejects.toThrow("Cancelled");
+      await expect(run({ overwrite: true }, { path: video }, ctx)).rejects.toThrow("Cancelled");
     });
   },
 );

@@ -1,6 +1,6 @@
 {
   "name": "fyflow-plugin-video-thumbnail",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "A fyflow-app Plugin: video thumbnails and contact sheets, made by a local thumbs-collage service",
   "type": "module",
@@ -26,7 +26,7 @@
     "@biomejs/biome": "2.5.15",
     "@types/node": "26.6.5",
     "fyflow-orchestration": "0.13.0",
-    "fyflow-plugin-sdk": "0.5.0",
+    "fyflow-plugin-sdk": "0.6.0",
     "fyflow-scheduler": "0.6.0",
     "typescript": "7.0.2",
     "vitest": "5.0.4"

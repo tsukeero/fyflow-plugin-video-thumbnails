@@ -25,12 +25,13 @@ there (`npm install fyflow-plugin-sdk` in the Plugin directory), then Reload.
 
 ## `VideoThumbnail`
 
-Its Task reads a video and writes a JPEG. Every field below can be a Node setting or a field of the Task input. A
+Its Task reads the video at the Task input's `path` and writes a JPEG. `path` comes only from the input, since one
+Node makes thumbnails of many videos. Every other field below can be a Node setting or a field of the Task input. A
 setting wins over the input, and a nested option (`selection`, `collage`) comes whole from one place, never merged.
 
 | Field | What it is |
 | --- | --- |
-| `path` | The video, an absolute path. Required. |
+| `path` | The video, an absolute path. Required, in the Task input only. |
 | `output` | A `.jpg`/`.jpeg` file to write, or a folder to name one in. |
 | `overwrite` | Make it again even if this video and these options made one in the folder before. |
 | `selection` | `{ mode: "uniform", frames, startOffset?, endOffset? }` (offsets in seconds) or `{ mode: "timestamps", timestamps }`. |
@@ -56,6 +57,35 @@ timestamp differs from the one `requested` when blank frames were skipped.
 optional. `executablePath` and `fontFile` are start-up fields, so a change takes effect at the Host's next Reload.
 `outputDir` is read as each Task is dispatched, and a Flow or one of its Nodes may set its own.
 
+### Short clips
+
+A clip too short for the Task fails, with one of two errors from the thumbnail service:
+
+| `outcome.error` starts with | When |
+| --- | --- |
+| `The thumbnail service failed (500): duration is too short` | The clip is 1 second or shorter, whatever the settings. |
+| `The thumbnail service failed (500): invalid offsets` | `selection`'s `startOffset` and `endOffset` together are as long as the clip or longer. |
+
+To route them apart from other failures, such as clips from games in a big folder, make the Node `optional`, so a
+failure goes down its failure Edges instead of stopping the Run. Then give it one failure Edge per error, matched with
+`startsWith`, and one failure Edge without a condition for every other error:
+
+```json
+{
+  "id": "thumb", "kind": "task", "type": "VideoThumbnail", "optional": true,
+  "edges": [
+    { "on": ["failed"], "when": { "path": "outcome.error", "op": "startsWith",
+      "value": "The thumbnail service failed (500): duration is too short" }, "to": "gather" },
+    { "on": ["failed"], "when": { "path": "outcome.error", "op": "startsWith",
+      "value": "The thumbnail service failed (500): invalid offsets" }, "to": "gather" },
+    { "on": ["failed"], "to": "broken" },
+    { "to": "gather" }
+  ]
+}
+```
+
+The match is on the message's text, so check these lines if the plugin or the service changes how it words them.
+
 ## Finding the videos: `VideoFiles` and `IsVideo`
 
 Two Node Types share one test of whether a file is a video (below):
@@ -68,8 +98,8 @@ Two Node Types share one test of whether a file is a video (below):
   `count`, the number of videos. A `map` over an empty list never reaches its join, and the Run is stuck, so when
   a folder may have no videos, route on `outcome.result.count` greater than `0` to the `map`, with the default Edge
   going around it.
-- **`IsVideo`** checks one file, for its Edges to route on, like a gate that reads the file. The file is its `path`
-  setting, else the Task input when it is a path, else the path at `pathKey` in it, so inside a `map` it checks each
+- **`IsVideo`** checks one file, for its Edges to route on, like a gate that reads the file. The file is the Task
+  input when it is a path, else the path at `pathKey` in it, so inside a `map` it checks each
   item. It hands on `{ path, video, container?, reason? }`. Give it an Edge with the condition
   `outcome.result.video` equals `true` to the Nodes for a video, and one without a condition for the rest (fyflow
   wants one default Edge). Its result has `path` at the top, so a `VideoThumbnail` after it takes it as it is. A

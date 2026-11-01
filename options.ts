@@ -85,14 +85,18 @@ export function fieldOf(envelope: Envelope, key: string): unknown {
 }
 
 /**
- * The absolute path a Task names in `field`, from its setting or its Task input. Nothing is resolved against the
- * Host's working directory.
+ * The absolute path the Task input names in `field`: never a setting, since a Node runs on many files. Nothing is
+ * resolved against the Host's working directory.
  */
 export function pathFrom(envelope: Envelope, field: string): string {
-  const given = fieldOf(envelope, field);
+  const { input } = envelope;
+  const given =
+    typeof input === "object" && input !== null && !Array.isArray(input)
+      ? (input as Record<string, unknown>)[field]
+      : undefined;
   if (given === undefined || given === null || given === "")
     throw new Error(
-      `No \`${field}\`: set it in the Node's settings, or pass it as \`${field}\` in the Task input`,
+      `No \`${field}\` in the Task input: put this Node after one whose result has it, or give it one with a Transform`,
     );
   if (typeof given !== "string") throw new Error(`\`${field}\` must be a path, not ${JSON.stringify(given)}`);
   if (!absolute(given)) throw new Error(`\`${field}\` must be an absolute path: "${given}" is relative`);

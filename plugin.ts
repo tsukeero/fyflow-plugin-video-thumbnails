@@ -32,7 +32,6 @@ const channel = { type: "integer", minimum: 0, maximum: 255 };
 const settingsSchema = {
   type: "object",
   properties: {
-    path: absolutePath("The video, an absolute path; left empty, the Task input's `path`"),
     output: absolutePath(
       "A .jpg file to write, or a folder to name one in; left empty, the Profile's outputDir or the temp folder",
     ),
@@ -109,6 +108,23 @@ const settingsSchema = {
   additionalProperties: false,
 };
 
+// Made-up paths for the schemas' examples, which the app's editor shows beside each Node's fields.
+const EXAMPLE_FOLDER = "D:/Videos";
+const EXAMPLE_VIDEO = `${EXAMPLE_FOLDER}/holiday.mp4`;
+
+// Fields it doesn't list are left alone, so a ListFolder entry or an IsVideo result fits as it is.
+const inputSchema = {
+  type: "object",
+  description:
+    "The video at `path`, and any of the Node's settings below: a setting the Node has wins over the same field here",
+  required: ["path"],
+  properties: {
+    path: absolutePath("The video, an absolute path"),
+    ...settingsSchema.properties,
+  },
+  examples: [{ path: EXAMPLE_VIDEO }],
+};
+
 const outputSchema = {
   type: "object",
   required: ["path", "video", "duration", "width", "height", "frames", "reused"],
@@ -129,6 +145,17 @@ const outputSchema = {
     },
     reused: { type: "boolean", description: "true when an earlier Task had made it already" },
   },
+  examples: [
+    {
+      path: `${EXAMPLE_FOLDER}/thumbnails/holiday.3f9a1c2e7b40.jpg`,
+      video: EXAMPLE_VIDEO,
+      duration: 754.2,
+      width: 640,
+      height: 360,
+      frames: [{ requested: 377.1, actual: 377.1 }],
+      reused: false,
+    },
+  ],
 };
 
 const keyPath = (description: string) => ({ type: "string", minLength: 1, description });
@@ -148,6 +175,39 @@ const videoTest = {
   },
 };
 
+/** A `ListFolder` entry, for the examples. */
+const entryOf = (name: string, size: number) => ({
+  name,
+  path: `${EXAMPLE_FOLDER}/${name}`,
+  relativePath: name,
+  kind: "file",
+  size,
+  modifiedAt: "2026-06-14T18:32:05.000Z",
+});
+const EXAMPLE_ENTRIES = [entryOf("holiday.mp4", 734_003_200), entryOf("notes.txt", 812)];
+
+// Where the list and the paths are is the Node's to say (`list`, `pathKey`), so this describes the defaults and
+// requires nothing; an array is the input that is the list itself (`list: "."`).
+const videoFilesInput = {
+  type: ["object", "array"],
+  description:
+    "A list of files, at `entries` unless the Node's `list` says where, so `ListFolder`'s result fits as it is. Each item is an absolute path, or an object with its path at `path` (or the Node's `pathKey`)",
+  properties: {
+    entries: {
+      type: "array",
+      description: "the files: absolute paths, or objects such as `ListFolder`'s entries",
+      items: {
+        type: ["string", "object"],
+        properties: {
+          path: { type: "string", description: "the file's absolute path" },
+          kind: { type: "string", description: "anything but `file` is left out" },
+        },
+      },
+    },
+  },
+  examples: [{ path: EXAMPLE_FOLDER, entries: EXAMPLE_ENTRIES }],
+};
+
 const videoFilesSettings = {
   type: "object",
   properties: {
@@ -165,15 +225,21 @@ const videoFilesSettings = {
 const isVideoSettings = {
   type: "object",
   properties: {
-    path: absolutePath(
-      "The file, an absolute path; left empty, the Task input, or the path at `pathKey` in it",
-    ),
     pathKey: keyPath(
       "Where the path is in the Task input when it is not a path itself, such as `path` or `file.path`; left empty, `path`",
     ),
     ...videoTest,
   },
   additionalProperties: false,
+};
+
+// A path, or an object with one at `path` (or the Node's `pathKey`): nothing is required, as `pathKey` may move it.
+const isVideoInput = {
+  type: ["string", "object"],
+  description:
+    "The file: an absolute path, or an object with its path at `path` (or the Node's `pathKey`), such as a `ListFolder` entry in a map",
+  properties: { path: { type: "string", description: "the file's absolute path" } },
+  examples: [EXAMPLE_ENTRIES[0]],
 };
 
 const isVideoOutput = {
@@ -188,6 +254,10 @@ const isVideoOutput = {
     },
     reason: { type: "string", description: "why it is not a video" },
   },
+  examples: [
+    { path: EXAMPLE_VIDEO, video: true, container: "mp4" },
+    { path: `${EXAMPLE_FOLDER}/notes.txt`, video: false, reason: "not a video extension" },
+  ],
 };
 
 const videoFilesOutput = {
@@ -214,24 +284,37 @@ const videoFilesOutput = {
       },
     },
   },
+  examples: [
+    {
+      count: 1,
+      entries: [EXAMPLE_ENTRIES[0]],
+      skipped: [{ path: `${EXAMPLE_FOLDER}/notes.txt`, reason: "not a video extension" }],
+    },
+  ],
 };
 
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
-  version: "0.1.0",
+  version: "0.1.1",
   base: import.meta.url,
   profile: {
     schema: profileSchema,
     startup: ["executablePath", "fontFile"],
   },
   workers: {
-    thumbnail: { url: "./thumbnail.worker.ts", settingsSchema, outputSchema },
+    thumbnail: { url: "./thumbnail.worker.ts", settingsSchema, inputSchema, outputSchema },
     videoFiles: {
       url: "./video-files.worker.ts",
       settingsSchema: videoFilesSettings,
+      inputSchema: videoFilesInput,
       outputSchema: videoFilesOutput,
     },
-    isVideo: { url: "./is-video.worker.ts", settingsSchema: isVideoSettings, outputSchema: isVideoOutput },
+    isVideo: {
+      url: "./is-video.worker.ts",
+      settingsSchema: isVideoSettings,
+      inputSchema: isVideoInput,
+      outputSchema: isVideoOutput,
+    },
   },
   nodeTypes: {
     VideoThumbnail: {

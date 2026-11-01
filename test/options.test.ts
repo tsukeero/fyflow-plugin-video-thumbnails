@@ -8,21 +8,18 @@ const envelope = (settings: Record<string, unknown>, input: unknown = {}) => ({
 const video = process.platform === "win32" ? "C:\\videos\\movie.mp4" : "/videos/movie.mp4";
 
 describe("pathFrom", () => {
-  it("takes the Node's setting over the Task input's field", () => {
-    expect(pathFrom(envelope({ path: video }, { path: "/elsewhere.mp4" }), "path")).toBe(video);
-  });
-
-  it("takes the Task input's field when the setting is empty or left out", () => {
-    expect(pathFrom(envelope({ path: "" }, { path: video }), "path")).toBe(video);
-    expect(pathFrom(envelope({}, { path: video }), "path")).toBe(video);
+  it("takes the Task input's field, never a setting of the same name", () => {
+    expect(pathFrom(envelope({ path: "/elsewhere.mp4" }, { path: video }), "path")).toBe(video);
+    expect(() => pathFrom(envelope({ path: video }, {}), "path")).toThrow(/No `path` in the Task input/);
   });
 
   it("refuses a missing or relative path, naming the field", () => {
-    expect(() => pathFrom(envelope({}, {}), "path")).toThrow(/No `path`/);
-    expect(() => pathFrom(envelope({ path: "movie.mp4" }), "path")).toThrow(
+    expect(() => pathFrom(envelope({}, {}), "path")).toThrow(/No `path` in the Task input/);
+    expect(() => pathFrom(envelope({}, video), "path")).toThrow(/No `path` in the Task input/);
+    expect(() => pathFrom(envelope({}, { path: "movie.mp4" }), "path")).toThrow(
       /`path` must be an absolute path/,
     );
-    expect(() => pathFrom(envelope({ path: 3 }), "path")).toThrow(/`path` must be a path/);
+    expect(() => pathFrom(envelope({}, { path: 3 }), "path")).toThrow(/`path` must be a path/);
   });
 });
 

@@ -5,7 +5,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type FlowDefinition, type RegistryDocument, validateDefinition } from "fyflow-orchestration";
+import {
+  type FlowDefinition,
+  findings,
+  type RegistryDocument,
+  validateDefinition,
+} from "fyflow-orchestration";
 import { createRuntime } from "fyflow-orchestration/scheduler";
 import { CPU_GROUP, DISK_GROUP, type PluginNodeType } from "fyflow-plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -52,6 +57,32 @@ const flowOf = (settings: Record<string, unknown>): FlowDefinition => ({
 describe("the Plugin's declarations", () => {
   it("is what fyflow accepts: its schemas in fyflow's subset, its Node Type on its pool", () => {
     expect(() => createRuntime(registryOf(), {}, { base: plugin.base })).not.toThrow();
+  });
+
+  it("has input schemas that take every input its Workers take, as fyflow holds a Run's input to them", () => {
+    const { thumbnail, videoFiles, isVideo } = plugin.workers as Record<
+      string,
+      { inputSchema: Record<string, unknown> }
+    >;
+    const entry = {
+      name: "a.mp4",
+      path: "D:/a.mp4",
+      relativePath: "a.mp4",
+      kind: "file",
+      size: 1,
+      modifiedAt: "",
+    };
+    const fits = (schema: Record<string, unknown> | undefined, value: unknown) =>
+      expect(findings(schema ?? {}, value)).toEqual([]);
+    expect(findings(thumbnail?.inputSchema ?? {}, {})).not.toEqual([]); // `path` is the input's
+    fits(thumbnail?.inputSchema, { path: "D:/a.mp4", video: true, container: "mp4" }); // an IsVideo result
+    fits(thumbnail?.inputSchema, entry);
+    fits(videoFiles?.inputSchema, { path: "D:/", entries: [entry, "D:/b.mkv"] });
+    fits(videoFiles?.inputSchema, ["D:/a.mp4"]); // `list: "."`
+    fits(videoFiles?.inputSchema, { listing: { files: [] } }); // `list: "listing.files"`
+    fits(isVideo?.inputSchema, "D:/a.mp4");
+    fits(isVideo?.inputSchema, entry);
+    fits(isVideo?.inputSchema, { file: { path: "D:/a.mp4" } }); // `pathKey: "file.path"`
   });
 
   it("lets fyflow refuse a Flow whose settings are wrong before it runs", () => {
