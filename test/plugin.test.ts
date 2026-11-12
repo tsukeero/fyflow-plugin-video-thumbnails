@@ -15,9 +15,12 @@ import { createRuntime } from "fyflow-orchestration/scheduler";
 import { CPU_GROUP, DISK_GROUP, type PluginNodeType } from "fyflow-plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import plugin from "../plugin.ts";
-import { EXECUTABLE, serviceDir } from "../service.ts";
+import { installedExecutable } from "../release.ts";
+import { TEST_DATA_DIR } from "../scripts/fetch-service.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+/** The Host gives each Worker the Plugin's data directory, where the service is downloaded to. */
+const hostConfig = { host: { dataDir: TEST_DATA_DIR } };
 const video = join(root, "test", "fixtures", "sample.mp4");
 
 /** `config` stands in for the Profile's start-up fields, which the Host gives each Node Type as its config. */
@@ -56,7 +59,7 @@ const flowOf = (settings: Record<string, unknown>): FlowDefinition => ({
 
 describe("the Plugin's declarations", () => {
   it("is what fyflow accepts: its schemas in fyflow's subset, its Node Type on its pool", () => {
-    expect(() => createRuntime(registryOf(), {}, { base: plugin.base })).not.toThrow();
+    expect(() => createRuntime(registryOf(hostConfig), {}, { base: plugin.base })).not.toThrow();
   });
 
   it("has input schemas that take every input its Workers take, as fyflow holds a Run's input to them", () => {
@@ -94,8 +97,8 @@ describe("the Plugin's declarations", () => {
   });
 });
 
-describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
-  "the Plugin in a runtime (needs `pnpm copy-service`)",
+describe.skipIf(!existsSync(installedExecutable(join(TEST_DATA_DIR, "service")) ?? ""))(
+  "the Plugin in a runtime (needs `pnpm fetch-service`)",
   () => {
     let dir: string;
     beforeAll(async () => {
@@ -107,7 +110,7 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
 
     it("runs a Flow: fyflow sets the Worker up, so its service makes the thumbnail", async () => {
       // No Host here to add the per-Task `outputDir` under `settings.profile`, so the Node names the folder.
-      const runtime = createRuntime(registryOf(), {}, { base: plugin.base });
+      const runtime = createRuntime(registryOf(hostConfig), {}, { base: plugin.base });
       try {
         const { done } = runtime.start(flowOf({ output: dir, renderTimestamps: true }), { path: video });
         const state = await done;
@@ -150,7 +153,7 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
         ],
       };
       expect(validateDefinition(flow, judgedBy())).toEqual([]);
-      const runtime = createRuntime(registryOf(), {}, { base: plugin.base });
+      const runtime = createRuntime(registryOf(hostConfig), {}, { base: plugin.base });
       try {
         const { done } = runtime.start(flow, { entries: [video, join(root, "README.md")] });
         const state = await done;
@@ -194,7 +197,7 @@ describe.skipIf(!existsSync(join(serviceDir(root), EXECUTABLE)))(
         ],
       };
       expect(validateDefinition(flow, judgedBy())).toEqual([]);
-      const runtime = createRuntime(registryOf(), {}, { base: plugin.base });
+      const runtime = createRuntime(registryOf(hostConfig), {}, { base: plugin.base });
       try {
         const { done } = runtime.start(flow, { paths: [join(root, "README.md"), video] });
         const state = await done;

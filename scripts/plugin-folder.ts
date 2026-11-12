@@ -1,7 +1,7 @@
 // Makes `dist/video-thumbnail/`: the Plugin as a Host loads it, and nothing else. It is the folder to pick with
 // "Choose folder…" in the app, whose installer copies a folder whole and refuses one holding a link (pnpm's
-// node_modules is made of them). Run `pnpm copy-service` first: the service's bin/ goes in too.
-import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+// node_modules is made of them). The service is not in it: a Worker downloads it on first use (./release.ts).
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,14 +17,13 @@ const FILES = [
   "options.ts",
   "output.ts",
   "service.ts",
+  "release.ts",
   "README.md",
 ];
-const FOLDERS = ["assets", "bin"];
+const FOLDERS = ["assets"];
 
 /** Makes the Plugin folder at `to`, replacing what is there. */
 export async function makePluginFolder(to: string): Promise<void> {
-  const bin = join(root, "bin");
-  if (!(await exists(bin))) throw new Error(`No ${bin}: run \`pnpm copy-service\` first`);
   await rm(to, { recursive: true, force: true });
   await mkdir(to, { recursive: true });
   for (const name of FILES) await cp(join(root, name), join(to, name));
@@ -40,12 +39,6 @@ export async function makePluginFolder(to: string): Promise<void> {
   } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   await writeFile(join(to, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 }
-
-const exists = (path: string) =>
-  stat(path).then(
-    () => true,
-    () => false,
-  );
 
 if (import.meta.main) {
   const to = resolve(process.argv[2] ?? join(root, "dist", "video-thumbnail"));

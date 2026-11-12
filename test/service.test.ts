@@ -2,10 +2,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { EXECUTABLE, type Service, serviceDir, startService } from "../service.ts";
+import { installedExecutable } from "../release.ts";
+import { TEST_DATA_DIR } from "../scripts/fetch-service.ts";
+import { type Service, startService } from "../service.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const executable = join(serviceDir(root), EXECUTABLE);
+const executable = installedExecutable(join(TEST_DATA_DIR, "service")) ?? "";
 const video = join(root, "test", "fixtures", "sample.mp4");
 const request = (jobId: string, path = video) => ({
   path,
@@ -23,7 +25,7 @@ const exited = (pid: number) => {
   }
 };
 
-describe.skipIf(!existsSync(executable))("startService (needs `pnpm copy-service`)", () => {
+describe.skipIf(!existsSync(executable))("startService (needs `pnpm fetch-service`)", () => {
   let service: Service | undefined;
   afterEach(async () => {
     await service?.stop();

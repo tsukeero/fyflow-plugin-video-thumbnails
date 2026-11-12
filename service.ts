@@ -2,15 +2,9 @@
 // `POST /make_collage` per thumbnail, and heard on its `/ws-progress` WebSocket, which broadcasts every job's progress
 // by job id. It is started with `--exit-on-stdin-close` and its stdin kept open, so it dies with us however we end.
 import { type ChildProcess, spawn } from "node:child_process";
-import { join } from "node:path";
 
 /** The service's executable's file name on this platform. */
 export const EXECUTABLE = process.platform === "win32" ? "thumbs-collage.exe" : "thumbs-collage";
-
-/** Where `pnpm copy-service` puts the service for this platform, under the Plugin's folder `root`. */
-export function serviceDir(root: string): string {
-  return join(root, "bin", `${process.platform}-${process.arch}`);
-}
 
 export interface StartOptions {
   executable: string;

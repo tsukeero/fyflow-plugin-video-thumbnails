@@ -13,7 +13,7 @@ const profileSchema = {
   type: "object",
   properties: {
     executablePath: absolutePath(
-      "The thumbs-collage executable; left empty, the one `pnpm copy-service` put in the Plugin's bin folder",
+      "The thumbs-collage executable; left empty, the pinned release, downloaded into the Plugin's data directory on first use",
     ),
     fontFile: absolutePath("A TTF font for timestamps; left empty, the bundled DejaVu Sans"),
     outputDir: absolutePath(
@@ -295,7 +295,9 @@ const videoFilesOutput = {
 
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
-  version: "0.1.1",
+  version: "0.2.0",
+  // The service is downloaded into it on first use (./release.ts), and kept there across Reloads and updates.
+  dataDir: true,
   base: import.meta.url,
   profile: {
     schema: profileSchema,

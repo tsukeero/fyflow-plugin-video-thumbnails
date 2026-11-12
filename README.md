@@ -1,27 +1,41 @@
 # fyflow-ext.video-thumbnail
 
 A [fyflow-app](../fyflow-app) Plugin that makes JPEG thumbnails and contact sheets of videos, and finds the videos
-among files. The decoding is done by [thumbs-collage](../rust-thumbnail-service-public), a Rust and FFmpeg service
-the Worker runs beside the Host.
+among files. The decoding is done by [thumbs-collage](https://github.com/tsukeero/rust-video-thumbnail-generator), a
+Rust and FFmpeg service the Worker runs beside the Host.
 
 ## Set it up
 
 ```sh
 pnpm install
-pnpm copy-service   # copies thumbs-collage and its FFmpeg libraries into bin/<platform>-<arch>/
+pnpm fetch-service  # downloads the pinned thumbs-collage release into .service/, for the tests
 pnpm check          # typecheck, lint, tests
 ```
 
-`pnpm copy-service` reads `../rust-thumbnail-service-public/target/release` unless you pass another folder. `bin/` is
-not committed. The release build needs `--exit-on-stdin-close` (the Worker always passes it).
-
 To install it from the app, run `pnpm plugin-folder` and pick `dist/video-thumbnail` with **Choose folder…** on the
-Plugins page. That folder holds only what a Host loads (the code, `assets/`, `bin/` and a package.json): the app's
+Plugins page. That folder holds only what a Host loads (the code, `assets/` and a package.json): the app's
 installer copies a folder whole and refuses one holding a link, which this repo's `node_modules` is full of. The
 desktop app provides the SDK by itself.
 
 On a server Host you can instead put a link to this repo in the Plugin directory, with `fyflow-plugin-sdk` installed
 there (`npm install fyflow-plugin-sdk` in the Plugin directory), then Reload.
+
+## The thumbnail service
+
+The service is not in the Plugin. The `VideoThumbnail` Worker downloads it the first time it starts on a Host, in
+`setup()`, from the GitHub release `release.ts` pins: version `SERVICE_VERSION` (0.0.4), one archive per platform,
+each checked against its SHA-256 before it is unpacked. It goes into the Plugin's data directory (`dataDir: true`,
+fyflow-plugin-sdk 0.6.0), under `service/thumbs-collage-<version>-<platform>/`, which the Host keeps across Reloads,
+updates and reinstalling, so it is downloaded once per Host and version. A Host's first thumbnail waits for the
+download (about 80 MB on Windows and Linux, which carry their FFmpeg libraries); the Worker tries it three times
+before its `setup()` fails. Older versions' folders stay until you delete them.
+
+The release has archives for Windows x64, Linux x64 and macOS arm64. The macOS one needs FFmpeg 8 installed (for
+example with Homebrew). On any other platform, or to use a build of your own, set `executablePath` in the Profile;
+the Worker then downloads nothing. The service must take `--exit-on-stdin-close` (the Worker always passes it).
+
+To move to a new release, change `SERVICE_VERSION`, run `pnpm fetch-service --hash`, check its hashes against the
+release, and paste them into `ASSETS`.
 
 ## `VideoThumbnail`
 
@@ -53,8 +67,8 @@ last change, and the options, so running a Task again on an unchanged video reus
 **Result:** `{ path, video, duration, width, height, frames: [{ requested, actual }], reused }`. A frame's `actual`
 timestamp differs from the one `requested` when blank frames were skipped.
 
-**Profile:** the `fyflow-ext.video-thumbnail` section holds `executablePath`, `fontFile` and `outputDir`, each
-optional. `executablePath` and `fontFile` are start-up fields, so a change takes effect at the Host's next Reload.
+**Profile:** the `fyflow-ext.video-thumbnail` section holds `executablePath` (left empty, the downloaded release),
+`fontFile` and `outputDir`, each optional. `executablePath` and `fontFile` are start-up fields, so a change takes effect at the Host's next Reload.
 `outputDir` is read as each Task is dispatched, and a Flow or one of its Nodes may set its own.
 
 ### Short clips
@@ -127,7 +141,7 @@ behind copies.
 ## How it runs
 
 The Node Type's pool is inline with one Worker instance per Profile, up to 4 Tasks at once, retired after 30 s with
-none. The instance starts the service in `setup()`:
+none. The instance starts the service in `setup()`, after downloading it if this Host has not yet:
 
 - on a free port of 127.0.0.1;
 - with its progress WebSocket on;
@@ -147,5 +161,6 @@ promises since 0.5.0.
 
 ## Tests
 
-The tests run against the real service and skip themselves when `bin/` is missing. `test/fixtures/sample.mp4` is
+The tests run against the real service, the one `pnpm fetch-service` downloads into `.service/` (given to the Worker
+as its data directory), and skip themselves when it is missing. `test/fixtures/sample.mp4` is
 1 s of black, then 5 s of ffmpeg's test pattern. `pnpm make-fixture` remakes it with the ffmpeg in `$FFMPEG_DIR/bin`.

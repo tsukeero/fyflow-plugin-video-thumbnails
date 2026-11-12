@@ -6,13 +6,16 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PoolContext, TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
+import type { HostConfig, PoolContext, TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
 import { fieldOf, optionsOf, pathFrom, requestOf } from "./options.ts";
 import { framesOf, metadataOf, outputOf } from "./output.ts";
-import { EXECUTABLE, type Service, serviceDir, startService } from "./service.ts";
+import { ensureService } from "./release.ts";
+import { type Service, startService } from "./service.ts";
 
 /** The Profile's start-up fields: every one optional, each overriding where this Plugin looks by itself. */
 export interface Config {
+  /** The Plugin's data directory, where the service is downloaded to; the Host gives it (`dataDir: true`). */
+  host?: HostConfig;
   executablePath?: string;
   fontFile?: string;
 }
@@ -58,19 +61,31 @@ export default class VideoThumbnail
   }
 
   async setup(): Promise<void> {
-    const executable = this.#config.executablePath ?? join(serviceDir(root), EXECUTABLE);
-    if (!existsSync(executable))
-      throw new Error(
-        this.#config.executablePath === undefined
-          ? `No thumbnail service at "${executable}": run \`pnpm copy-service\` in the Plugin's folder, or set \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`
-          : `No thumbnail service at "${executable}", the \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`,
-      );
+    const executable = await this.#executable();
     this.#service = await startService({
       executable,
       fontFile: this.#config.fontFile ?? join(root, "assets", "fonts", "DejaVuSans.ttf"),
       // Its Tasks in flight have failed already; the pool builds a new instance, and with it a new service.
       onExit: (error) => this.#pool?.terminateWithError(error, { canRestart: true }),
     });
+  }
+
+  /** The Profile's `executablePath`, else the pinned release, downloaded into the Plugin's data directory once. */
+  async #executable(): Promise<string> {
+    const given = this.#config.executablePath;
+    if (given !== undefined) {
+      if (!existsSync(given))
+        throw new Error(
+          `No thumbnail service at "${given}", the \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`,
+        );
+      return given;
+    }
+    const dataDir = this.#config.host?.dataDir;
+    if (dataDir === undefined)
+      throw new Error(
+        "No data directory to download the thumbnail service to: this Host is older than fyflow-plugin-sdk 0.6.0. Set `executablePath` in the fyflow-ext.video-thumbnail section of this Node's Profile",
+      );
+    return ensureService(join(dataDir, "service"));
   }
 
   async teardown(): Promise<void> {
