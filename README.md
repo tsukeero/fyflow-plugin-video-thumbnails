@@ -1,10 +1,30 @@
 # fyflow-ext.video-thumbnail
 
-A [fyflow-app](../fyflow-app) Plugin that makes JPEG thumbnails and contact sheets of videos, and finds the videos
+A [fyflow](https://github.com/fyflow/fyflow-app) Plugin that makes JPEG thumbnails and contact sheets of videos, and finds the videos
 among files. The decoding is done by [thumbs-collage](https://github.com/tsukeero/rust-video-thumbnail-generator), a
 Rust and FFmpeg service the Worker runs beside the Host.
 
-## Set it up
+## Install
+
+In the app, install **Video thumbnails** from **Browse** on the Plugins page: it is in the official Plugin
+repository. It needs a Host on fyflow-plugin-sdk 0.11 or later. Then, on the Profiles page, give it the folders it
+may touch (below): until then every Task is refused.
+
+## Allowed roots
+
+The Plugin takes the Host's Allowed roots (`roots: true`): the folders a person lets its Tasks reach, set on the
+Profiles page, for every Plugin that takes them or for this one alone. Every path a Flow names is checked against
+them, where it really leads (a link out of a root is refused):
+
+| Node Type | Needs |
+| --- | --- |
+| `VideoThumbnail` | `read` on the video; `write` on `output`, or on `outputDir`. Its own default folder in the system's temp folder needs none. |
+| `VideoFiles` | `read` on each file, when `checkContent` is on. A file out of reach is left out, with the reason `out of reach: …`; with no Allowed roots at all, the Task fails. |
+| `IsVideo` | `read` on the file, when `checkContent` is on. A file out of reach fails the Task: it is the Profile to fix, not a file that is no video. |
+
+The Profile's own fields (`executablePath`, `fontFile`) are not checked: only a Profile sets them.
+
+## Develop
 
 ```sh
 pnpm install
@@ -12,7 +32,7 @@ pnpm fetch-service  # downloads the pinned thumbs-collage release into .service/
 pnpm check          # typecheck, lint, tests
 ```
 
-To install it from the app, run `pnpm plugin-folder` and pick `dist/video-thumbnail` with **Choose folder…** on the
+To try a build of your own in the app, run `pnpm plugin-folder` and pick `dist/video-thumbnail` with **Choose folder…** on the
 Plugins page. That folder holds only what a Host loads (the code, `assets/` and a package.json): the app's
 installer copies a folder whole and refuses one holding a link, which this repo's `node_modules` is full of. The
 desktop app provides the SDK by itself.
@@ -157,10 +177,31 @@ service dies, the Tasks in flight fail with its last lines of output, and the Wo
 `setup()`, `teardown()` and that last request (`terminateWithError`) are the Worker lifecycle fyflow-plugin-sdk
 promises since 0.5.0.
 
-**Not in v1:** Allowed roots. Unlike `fyflow.fs`, this Plugin reads any video and writes any path it is given.
 
 ## Tests
 
 The tests run against the real service, the one `pnpm fetch-service` downloads into `.service/` (given to the Worker
 as its data directory), and skip themselves when it is missing. `test/fixtures/sample.mp4` is
 1 s of black, then 5 s of ffmpeg's test pattern. `pnpm make-fixture` remakes it with the ffmpeg in `$FFMPEG_DIR/bin`.
+
+## Release
+
+The Plugin is released into the official fyflow Plugin repository,
+[fyflow/fyflow-plugins](https://github.com/fyflow/fyflow-plugins). On a tag `<id>@<version>`,
+`.github/workflows/release.yml` calls its reusable workflow, which builds the Plugin folder (`fyflow.build`,
+`pnpm plugin-folder`), packs `dist/video-thumbnail` (`fyflow.pack`) and creates a GitHub Release with the tarball. The
+tarball is the code, the font and the licences, a few hundred KB: the service is not in it. The index shows
+`fyflow.name`, `fyflow.icon`, `description` and `homepage`. CI's `pack` job checks every push packs the same way.
+
+1. Set the version in `package.json` and in `plugin.ts` (they must agree), and commit.
+2. Check it packs and installs: `pnpm plugin-folder`, then `npx fyflow-plugin pack dist/video-thumbnail --out <dir>`,
+   upload the tarball on a Host's Plugins page (`FYFLOW_PLUGINS_INSTALL=any`), add an Allowed root, and run a Task of
+   each Node Type. The first `VideoThumbnail` Task downloads the service.
+3. Tag and push: `git tag fyflow-ext.video-thumbnail@<version> && git push origin fyflow-ext.video-thumbnail@<version>`.
+4. With a `FYFLOW_PLUGINS_TOKEN` secret (a classic token with `public_repo`), the workflow opens the PR against
+   fyflow-plugins itself. Without one it stops after the Release, and the PR is opened by hand from the run's artifacts,
+   as fyflow-plugin-anidb's README describes. Watch its checks with
+   `gh pr checks <url> --repo fyflow/fyflow-plugins --watch`: its **admit** check must pass.
+
+A published version never changes: to fix one, release the next. The service's version is part of the Plugin's: a new
+thumbs-collage release means a new Plugin version with new hashes in `release.ts`.

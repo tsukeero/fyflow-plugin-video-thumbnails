@@ -61,7 +61,7 @@ describe("makePluginFolder", () => {
 
   it("has a package.json with the SDK as its only dependency, a peer", async () => {
     const manifest = JSON.parse(await readFile(join(to, "package.json"), "utf8"));
-    expect(manifest.peerDependencies).toEqual({ "fyflow-plugin-sdk": "^0.6.0" });
+    expect(manifest.peerDependencies).toEqual({ "fyflow-plugin-sdk": "^0.11.0" });
     expect(manifest.devDependencies).toBeUndefined();
     expect(manifest.scripts).toBeUndefined();
   });

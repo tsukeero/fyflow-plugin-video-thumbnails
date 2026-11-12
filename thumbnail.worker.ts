@@ -6,9 +6,16 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { HostConfig, PoolContext, TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
+import {
+  allowedPath,
+  type HostConfig,
+  type PoolContext,
+  type TaskEnvelope,
+  type Worker,
+  type WorkerContext,
+} from "fyflow-plugin-sdk";
 import { fieldOf, optionsOf, pathFrom, requestOf } from "./options.ts";
-import { framesOf, metadataOf, outputOf } from "./output.ts";
+import { DEFAULT_OUTPUT_DIR, framesOf, metadataOf, outputOf } from "./output.ts";
 import { ensureService } from "./release.ts";
 import { type Service, startService } from "./service.ts";
 
@@ -114,12 +121,20 @@ export default class VideoThumbnail
     if (outputDir !== undefined && typeof outputDir !== "string")
       throw new Error(`\`outputDir\` must be a path, not ${JSON.stringify(outputDir)}`);
 
-    const stats = await stat(video).catch(() => {
+    // Every path a Flow can name is checked against the Task's Allowed roots, and used where it really leads.
+    const { roots } = envelope.settings;
+    const readable = await allowedPath(roots, video, "read");
+    const stats = await stat(readable).catch(() => {
       throw new Error(`No video at "${video}"`);
     });
     const target = outputOf({ output, outputDir, video, stats, request });
-    if (target.named && overwrite !== true && existsSync(target.path)) {
-      const result = resultOf(target.path, video, await readFile(target.path), true);
+    // The Plugin's own default folder is no path a Flow names, so it needs no root.
+    const writable =
+      output === undefined && outputDir === undefined && dirname(target.path) === DEFAULT_OUTPUT_DIR
+        ? target.path
+        : await allowedPath(roots, target.path, "write");
+    if (target.named && overwrite !== true && existsSync(writable)) {
+      const result = resultOf(target.path, video, await readFile(writable), true);
       context.sendProgress(1, "Reused the thumbnail made before");
       return result;
     }
@@ -129,15 +144,15 @@ export default class VideoThumbnail
       throw new Error("The thumbnail service is not running: this Worker was not set up");
     context.sendProgress(0, "Extracting frames");
     const jpeg = await service.collage(
-      { ...request, job_id: jobId },
+      { ...request, path: readable, job_id: jobId },
       { signal: context.signal, onProgress: (progress, message) => context.sendProgress(progress, message) },
     );
     // Written beside and then renamed, so a Task stopped halfway never leaves a partial file to be reused.
-    await mkdir(dirname(target.path), { recursive: true });
-    const partial = `${target.path}.${jobId}.part`;
+    await mkdir(dirname(writable), { recursive: true });
+    const partial = `${writable}.${jobId}.part`;
     try {
       await writeFile(partial, jpeg);
-      await rename(partial, target.path);
+      await rename(partial, writable);
     } catch (error) {
       await rm(partial, { force: true });
       throw error;

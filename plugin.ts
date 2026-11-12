@@ -298,6 +298,8 @@ export default definePlugin({
   version: "0.2.0",
   // The service is downloaded into it on first use (./release.ts), and kept there across Reloads and updates.
   dataDir: true,
+  // Every path a Flow names is checked against the Allowed roots a person sets on the Profiles page.
+  roots: true,
   base: import.meta.url,
   profile: {
     schema: profileSchema,

@@ -84,12 +84,15 @@ export async function verdictOf(
   path: string,
   wanted: ReadonlySet<string>,
   checkContent: boolean,
+  /** Where `path` really leads, or a throw why it may not be read: the Task's Allowed roots. Called before a read. */
+  readable: (path: string) => Promise<string> = async (p) => p,
 ): Promise<Verdict> {
   if (!absolute(path)) return { video: false, reason: "not an absolute path" };
   if (!hasExtension(path, wanted)) return { video: false, reason: "not a video extension" };
   if (!checkContent) return { video: true };
+  const real = await readable(path);
   try {
-    const container = containerOf(await headOf(path));
+    const container = containerOf(await headOf(real));
     return container === null
       ? { video: false, reason: "not a video container" }
       : { video: true, container };

@@ -19,6 +19,7 @@ const FILES = [
   "service.ts",
   "release.ts",
   "README.md",
+  "LICENSE",
 ];
 const FOLDERS = ["assets"];
 

@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { DEFAULT_OUTPUT_DIR } from "../output.ts";
 import { installedExecutable } from "../release.ts";
 import { TEST_DATA_DIR } from "../scripts/fetch-service.ts";
 import { EXECUTABLE } from "../service.ts";
 import VideoThumbnail, { type ThumbnailResult } from "../thumbnail.worker.ts";
+import { ROOTS } from "./roots.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const video = join(root, "test", "fixtures", "sample.mp4");
@@ -39,10 +41,11 @@ const fetched = existsSync(installedExecutable(join(TEST_DATA_DIR, "service")) ?
 describe.skipIf(!fetched)("VideoThumbnail (needs `pnpm fetch-service`)", () => {
   let dir: string;
   let worker: VideoThumbnail;
-  // The Profile's `outputDir` reaches each Task, as the Host gives it, under `settings.profile`.
-  const run = (settings: Record<string, unknown>, input: unknown = {}, ctx = context()) =>
+  // The Profile's `outputDir` reaches each Task, as the Host gives it, under `settings.profile`; its Allowed roots,
+  // at `settings.roots`.
+  const run = (settings: Record<string, unknown>, input: unknown = {}, ctx = context(), roots = ROOTS) =>
     worker.run(
-      { settings: { ...settings, profile: { outputDir: dir } }, input },
+      { settings: { ...settings, profile: { outputDir: dir }, roots }, input },
       ctx,
     ) as Promise<ThumbnailResult>;
 
@@ -118,6 +121,20 @@ describe.skipIf(!fetched)("VideoThumbnail (needs `pnpm fetch-service`)", () => {
     const text = join(dir, "not-a-video.mp4");
     await writeFile(text, "hello");
     await expect(run({}, { path: text })).rejects.toThrow(/The thumbnail service failed/);
+  });
+
+  it("refuses a video, or an output, out of the Task's Allowed roots, but writes to its own temp folder", async () => {
+    const readOnly = [{ path: root, access: "read" as const }];
+    await expect(run({}, { path: video }, context(), [])).rejects.toThrow(/no Allowed roots/);
+    // `dir`, the Profile's outputDir, is in the temp folder: readable here, but not writable.
+    await expect(run({}, { path: video }, context(), readOnly)).rejects.toThrow(
+      /outside every Allowed root with write access/,
+    );
+    const own = (await worker.run(
+      { settings: { profile: {}, roots: readOnly }, input: { path: video } },
+      context(),
+    )) as ThumbnailResult;
+    expect(own.path.startsWith(DEFAULT_OUTPUT_DIR)).toBe(true);
   });
 
   it("fails a Task whose options are wrong before asking the service", async () => {

@@ -2,7 +2,7 @@
 // as it came, and why each other one was left out. Where the list is in the Task input, and where the path is in each
 // item, are the Node's settings. A video has one of the Node's extensions and, unless the Node turns it off, a video
 // container's signature in its first bytes (./formats.ts). Nothing is decoded.
-import type { TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
+import { allowedPath, type TaskEnvelope, type Worker, type WorkerContext } from "fyflow-plugin-sdk";
 import { normalized, VIDEO_EXTENSIONS, valueAt, verdictOf } from "./formats.ts";
 
 export interface Settings {
@@ -33,6 +33,16 @@ export default class VideoFiles implements Worker<Settings, unknown, VideoFilesR
       checkContent = true,
     } = envelope.settings;
     const wanted = normalized(extensions);
+    const { roots } = envelope.settings;
+    if (checkContent && (roots === undefined || roots.length === 0))
+      throw new Error(
+        "No Allowed roots, so no file may be read: add a folder to read on the Profiles page, to this Node's Profile or to the fyflow-ext.video-thumbnail section of it",
+      );
+    // A file out of reach is left out, saying why, as one that cannot be read is.
+    const readable = (path: string) =>
+      allowedPath(roots, path, "read").catch((error: Error) => {
+        throw new OutOfReach(error.message);
+      });
     const items = itemsAt(envelope.input, list);
     const paths = items.map((item, i) => pathOf(item, pathKey, `${listName(list)}[${i}]`));
 
@@ -49,8 +59,13 @@ export default class VideoFiles implements Worker<Settings, unknown, VideoFilesR
           typeof item === "object" && item !== null ? (item as { kind?: unknown }).kind : undefined;
         if (kind !== undefined && kind !== "file") reasons[index] = `a ${kind}`;
         else {
-          const verdict = await verdictOf(paths[index] as string, wanted, checkContent);
-          reasons[index] = verdict.video ? null : verdict.reason;
+          try {
+            const verdict = await verdictOf(paths[index] as string, wanted, checkContent, readable);
+            reasons[index] = verdict.video ? null : verdict.reason;
+          } catch (error) {
+            if (!(error instanceof OutOfReach)) throw error;
+            reasons[index] = `out of reach: ${error.message}`;
+          }
         }
         done++;
         if (done % 100 === 0)
@@ -72,6 +87,8 @@ export default class VideoFiles implements Worker<Settings, unknown, VideoFilesR
     return result;
   }
 }
+
+class OutOfReach extends Error {}
 
 const listName = (list: string) => (list === "." ? "the Task input" : `\`${list}\``);
 

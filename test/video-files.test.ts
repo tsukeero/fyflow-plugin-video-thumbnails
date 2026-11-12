@@ -5,13 +5,14 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import IsVideo, { type Settings as IsVideoSettings } from "../is-video.worker.ts";
 import VideoFiles, { type Settings } from "../video-files.worker.ts";
+import { ROOTS } from "./roots.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const sample = join(root, "test", "fixtures", "sample.mp4");
 
 const context = () => ({ signal: new AbortController().signal, sendProgress: () => {} });
-const run = (input: unknown, settings: Settings = {}) =>
-  new VideoFiles().run({ settings: { ...settings, profile: {} }, input }, context());
+const run = (input: unknown, settings: Settings = {}, roots = ROOTS) =>
+  new VideoFiles().run({ settings: { ...settings, profile: {}, roots }, input }, context());
 
 describe("VideoFiles", () => {
   let dir: string;
@@ -89,8 +90,8 @@ describe("VideoFiles", () => {
 describe("IsVideo", () => {
   let dir: string;
   const at = (name: string) => join(dir, name);
-  const check = (input: unknown, settings: IsVideoSettings = {}) =>
-    new IsVideo().run({ settings: { ...settings, profile: {} }, input }, context());
+  const check = (input: unknown, settings: IsVideoSettings = {}, roots = ROOTS) =>
+    new IsVideo().run({ settings: { ...settings, profile: {}, roots }, input }, context());
 
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "is-video-test-"));
@@ -131,5 +132,41 @@ describe("IsVideo", () => {
       video: true,
     });
     await expect(check({ name: "a.mp4" })).rejects.toThrow(/No path at `path` in the Task input/);
+  });
+});
+
+describe("VideoFiles and IsVideo against the Allowed roots", () => {
+  let dir: string;
+  // The repository only: the temp folder the videos are in is out of reach.
+  const elsewhere = [{ path: root, access: "read" as const }];
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "video-roots-test-"));
+    await copyFile(sample, join(dir, "movie.mp4"));
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("VideoFiles leaves out a file out of reach, saying why, and keeps one in reach", async () => {
+    const result = await run({ entries: [join(dir, "movie.mp4"), sample] }, {}, elsewhere);
+    expect(result.entries).toEqual([{ path: sample }]);
+    expect(result.skipped).toEqual([
+      { path: join(dir, "movie.mp4"), reason: expect.stringMatching(/^out of reach: /) },
+    ]);
+  });
+
+  it("VideoFiles fails with no Allowed roots at all, unless it reads nothing", async () => {
+    await expect(run({ entries: [sample] }, {}, [])).rejects.toThrow(/No Allowed roots/);
+    expect((await run({ entries: [sample] }, { checkContent: false }, [])).count).toBe(1);
+  });
+
+  it("IsVideo fails on a file out of reach, rather than calling it no video", async () => {
+    await expect(
+      new IsVideo().run(
+        { settings: { profile: {}, roots: elsewhere }, input: join(dir, "movie.mp4") },
+        context(),
+      ),
+    ).rejects.toThrow(/outside every Allowed root with read access/);
   });
 });

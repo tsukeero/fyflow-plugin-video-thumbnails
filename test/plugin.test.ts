@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import plugin from "../plugin.ts";
 import { installedExecutable } from "../release.ts";
 import { TEST_DATA_DIR } from "../scripts/fetch-service.ts";
+import { ROOTS } from "./roots.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 /** The Host gives each Worker the Plugin's data directory, where the service is downloaded to. */
@@ -25,12 +26,25 @@ const video = join(root, "test", "fixtures", "sample.mp4");
 
 /** `config` stands in for the Profile's start-up fields, which the Host gives each Node Type as its config. */
 const registryOf = (config: Record<string, unknown> = {}): RegistryDocument => ({
-  workers: { ...plugin.workers },
+  // Every Worker of this Plugin is a JS one, with a `url`: no Python Workers. A Host puts each Task's Allowed roots
+  // in its settings; here the Node Types' settings carry them, so each Worker's settings schema takes them.
+  workers: Object.fromEntries(
+    Object.entries(plugin.workers ?? {}).map(([name, entry]) => {
+      const schema = entry.settingsSchema as { properties?: Record<string, unknown> } | undefined;
+      return [
+        name,
+        {
+          ...entry,
+          settingsSchema: { ...schema, properties: { ...schema?.properties, roots: { type: "array" } } },
+        },
+      ];
+    }),
+  ) as NonNullable<RegistryDocument["workers"]>,
   nodeTypes: Object.fromEntries(
     Object.entries(plugin.nodeTypes ?? {}).map(
       ([name, { icon: _i, description: _d, profile: _p, ...declaration }]) => [
         name,
-        { ...(declaration as PluginNodeType), config },
+        { ...(declaration as PluginNodeType), config, settings: { roots: ROOTS } },
       ],
     ),
   ),

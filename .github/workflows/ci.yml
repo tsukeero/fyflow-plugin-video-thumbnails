@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: Typecheck, lint, test (against the pinned thumbs-collage release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Downloads the service as a Host would, into .service/, so the tests run against it rather than skip.
+      - run: pnpm fetch-service
+      - run: pnpm check
+
+  pack:
+    name: Pack (as the release workflow does)
+    uses: fyflow/fyflow-plugins/.github/workflows/check-plugin.yml@v1
