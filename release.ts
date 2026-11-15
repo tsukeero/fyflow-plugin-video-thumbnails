@@ -39,6 +39,12 @@ export const assetUrl = (asset: Asset) =>
 
 const folderOf = (asset: Asset) => asset.name.replace(/\.(zip|tar\.gz)$/, "");
 
+/** The folder this platform's archive unpacks into, if the release has one for it. */
+export function platformFolder(): string | undefined {
+  const asset = ASSETS[`${process.platform}-${process.arch}`];
+  return asset === undefined ? undefined : folderOf(asset);
+}
+
 export interface EnsureOptions {
   /** This platform's archive unless set; tests give their own. */
   asset?: Asset;

@@ -14,14 +14,18 @@ import {
   type Worker,
   type WorkerContext,
 } from "fyflow-plugin-sdk";
+import { serviceDir, thumbnailsDir } from "./data.ts";
 import { fieldOf, optionsOf, pathFrom, requestOf } from "./options.ts";
-import { DEFAULT_OUTPUT_DIR, framesOf, metadataOf, outputOf } from "./output.ts";
+import { framesOf, metadataOf, outputOf } from "./output.ts";
 import { ensureService } from "./release.ts";
 import { type Service, startService } from "./service.ts";
 
 /** The Profile's start-up fields: every one optional, each overriding where this Plugin looks by itself. */
 export interface Config {
-  /** The Plugin's data directory, where the service is downloaded to; the Host gives it (`dataDir: true`). */
+  /**
+   * The Plugin's data directory, where the service is downloaded to and thumbnails go by default; the Host gives it
+   * (`dataDir: true`).
+   */
   host?: HostConfig;
   executablePath?: string;
   fontFile?: string;
@@ -92,7 +96,7 @@ export default class VideoThumbnail
       throw new Error(
         "No data directory to download the thumbnail service to: this Host is older than fyflow-plugin-sdk 0.6.0. Set `executablePath` in the fyflow-ext.video-thumbnail section of this Node's Profile",
       );
-    return ensureService(join(dataDir, "service"));
+    return ensureService(serviceDir(dataDir));
   }
 
   async teardown(): Promise<void> {
@@ -127,10 +131,12 @@ export default class VideoThumbnail
     const stats = await stat(readable).catch(() => {
       throw new Error(`No video at "${video}"`);
     });
-    const target = outputOf({ output, outputDir, video, stats, request });
-    // The Plugin's own default folder is no path a Flow names, so it needs no root.
+    const dataDir = this.#config.host?.dataDir;
+    const defaultDir = dataDir === undefined ? undefined : thumbnailsDir(dataDir);
+    const target = outputOf({ output, outputDir, defaultDir, video, stats, request });
+    // The Plugin's own folder in its data directory is no path a Flow names, so it needs no root.
     const writable =
-      output === undefined && outputDir === undefined && dirname(target.path) === DEFAULT_OUTPUT_DIR
+      output === undefined && outputDir === undefined
         ? target.path
         : await allowedPath(roots, target.path, "write");
     if (target.named && overwrite !== true && existsSync(writable)) {

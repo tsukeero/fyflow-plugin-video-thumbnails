@@ -18,6 +18,7 @@ const FILES = [
   "output.ts",
   "service.ts",
   "release.ts",
+  "data.ts",
   "README.md",
   "LICENSE",
 ];

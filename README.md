@@ -7,7 +7,8 @@ Rust and FFmpeg service the Worker runs beside the Host.
 ## Install
 
 In the app, install **Video thumbnails** from **Browse** on the Plugins page: it is in the official Plugin
-repository. It needs a Host on fyflow-plugin-sdk 0.11 or later. Then, on the Profiles page, give it the folders it
+repository. It needs a Host on fyflow-plugin-sdk 0.11 or later; on 0.12 its card also has a Data dialog
+([below](#its-data-directory)). Then, on the Profiles page, give it the folders it
 may touch (below): until then every Task is refused.
 
 ## Allowed roots
@@ -18,7 +19,7 @@ them, where it really leads (a link out of a root is refused):
 
 | Node Type | Needs |
 | --- | --- |
-| `VideoThumbnail` | `read` on the video; `write` on `output`, or on `outputDir`. Its own default folder in the system's temp folder needs none. |
+| `VideoThumbnail` | `read` on the video; `write` on `output`, or on `outputDir`. Its own `thumbnails` folder, used when neither is set, needs none. |
 | `VideoFiles` | `read` on each file, when `checkContent` is on. A file out of reach is left out, with the reason `out of reach: …`; with no Allowed roots at all, the Task fails. |
 | `IsVideo` | `read` on the file, when `checkContent` is on. A file out of reach fails the Task: it is the Profile to fix, not a file that is no video. |
 
@@ -48,7 +49,7 @@ each checked against its SHA-256 before it is unpacked. It goes into the Plugin'
 fyflow-plugin-sdk 0.6.0), under `service/thumbs-collage-<version>-<platform>/`, which the Host keeps across Reloads,
 updates and reinstalling, so it is downloaded once per Host and version. A Host's first thumbnail waits for the
 download (about 80 MB on Windows and Linux, which carry their FFmpeg libraries); the Worker tries it three times
-before its `setup()` fails. Older versions' folders stay until you delete them.
+before its `setup()` fails. Older versions' folders stay until you delete them from the Plugin's Data dialog.
 
 The release has archives for Windows x64, Linux x64 and macOS arm64. The macOS one needs FFmpeg 8 installed (for
 example with Homebrew). On any other platform, or to use a build of your own, set `executablePath` in the Profile;
@@ -78,9 +79,9 @@ setting wins over the input, and a nested option (`selection`, `collage`) comes 
 
 With nothing set, the thumbnail is one frame from the middle of the video, 640 pixels wide, blank frames skipped.
 
-**Where the file goes.** First `output`. Without it, the Profile's `outputDir`. Without that,
-`<system temp>/fyflow-video-thumbnails/`, which the OS may clear, so it suits a thumbnail the next Node uses rather
-than one to keep. In a folder, the file is named `<video name>.<hash>.jpg`. The hash covers the video's path, size and
+**Where the file goes.** First `output`. Without it, the Profile's `outputDir`. Without that, the Plugin's own
+`thumbnails/` folder in its data directory (`<Host data>/plugin-data/fyflow-ext.video-thumbnail/thumbnails/`),
+which nothing clears by itself ([below](#its-data-directory)). In a folder, the file is named `<video name>.<hash>.jpg`. The hash covers the video's path, size and
 last change, and the options, so running a Task again on an unchanged video reuses the file (`reused: true`) unless
 `overwrite` is set. A `.jpg` path that is given is always written.
 
@@ -157,6 +158,24 @@ video's. Folders and links in a listing are left out, and so are files that can'
 Neither decodes anything: each reads at most 512 bytes of a file. `VideoFiles` reads 16 files at a time and takes
 one slot of the `disk` group while it runs. `IsVideo` takes none, since one small read per item shouldn't wait
 behind copies.
+
+## Its data directory
+
+The Host keeps the Plugin's data directory across Reloads, updates and reinstalling. It holds:
+
+- `service/thumbs-collage-<version>-<platform>/`: the downloaded service, and any older version's folder;
+- `thumbnails/`: the thumbnails of Tasks that set neither `output` nor `outputDir`.
+
+The Plugin never deletes either. On a Host with fyflow-plugin-sdk 0.12, its card's **Data** link lists them with
+their sizes (the Plugin's `data()`, in `data.ts`), and a person deletes one, or all, there. Deleting the service only
+means it is downloaded again; deleting `thumbnails/` means Tasks make them again, and earlier Run results name files
+that are gone.
+
+To prune thumbnails from a Flow instead, for example with `fyflow.fs`'s delete after a later Node has used them, or
+to let another Plugin read them (an image tagger), give that Plugin an Allowed root on the Profiles page with **Add a
+Plugin's data folder** (fyflow-app with ADR-0032), picking `fyflow-ext.video-thumbnail`. That root is the whole data
+directory, service included, so point the delete at `thumbnails/` or the files in it, and grant `read` where reading
+is all that is needed. This Plugin's own Tasks reach its `thumbnails/` folder without a root.
 
 ## How it runs
 

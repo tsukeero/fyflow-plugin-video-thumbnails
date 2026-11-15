@@ -1,20 +1,19 @@
 // Where a thumbnail goes, and what it says about itself. A Task's `output` is a file when it ends in .jpg or
-// .jpeg and a folder otherwise; without one, the Profile's `outputDir`, else a folder in the system's temp folder.
+// .jpeg and a folder otherwise; without one, the Profile's `outputDir`, else the Plugin's own folder in its data
+// directory.
 // In a folder the file is named after the video and a hash of everything that makes the thumbnail, so running a
 // Task again on an unchanged video finds the thumbnail it made before.
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
 import { absolute } from "./options.ts";
-
-/** Where thumbnails go when neither the Task nor its Profile says: the OS may clean it up, so it is not storage. */
-export const DEFAULT_OUTPUT_DIR = join(tmpdir(), "fyflow-video-thumbnails");
 
 export interface OutputQuery {
   /** The Task's `output`: a .jpg/.jpeg file, or a folder. */
   output?: string | undefined;
   /** The Task's `outputDir`: the Profile's, or the Flow's or its Node's own. */
   outputDir?: string | undefined;
+  /** The Plugin's own folder, for when neither says: absent when the Host gives the Plugin no data directory. */
+  defaultDir?: string | undefined;
   video: string;
   /** The video's size and last change: a video replaced at the same path makes a new name. */
   stats: { size: number; mtimeMs: number };
@@ -28,7 +27,7 @@ export interface Output {
   named: boolean;
 }
 
-export function outputOf({ output, outputDir, video, stats, request }: OutputQuery): Output {
+export function outputOf({ output, outputDir, defaultDir, video, stats, request }: OutputQuery): Output {
   if (output !== undefined && !absolute(output))
     throw new Error(`\`output\` must be an absolute path: "${output}" is relative`);
   if (output === undefined && outputDir !== undefined && !absolute(outputDir))
@@ -36,7 +35,12 @@ export function outputOf({ output, outputDir, video, stats, request }: OutputQue
       `\`outputDir\` must be an absolute path: "${outputDir}" is relative; fix it where it is set, in the fyflow-ext.video-thumbnail section of this Node's Profile or in the Flow's own values`,
     );
   if (output !== undefined && /\.jpe?g$/i.test(output)) return { path: resolve(output), named: false };
-  const folder = resolve(output ?? outputDir ?? DEFAULT_OUTPUT_DIR);
+  const given = output ?? outputDir ?? defaultDir;
+  if (given === undefined)
+    throw new Error(
+      "No folder to put the thumbnail in: this Host gives the Plugin no data directory, so set `output`, or `outputDir` in the fyflow-ext.video-thumbnail section of this Node's Profile",
+    );
+  const folder = resolve(given);
   const hash = createHash("sha256")
     .update(JSON.stringify({ video, size: stats.size, mtimeMs: stats.mtimeMs, request }))
     .digest("hex")

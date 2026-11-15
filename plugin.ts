@@ -3,6 +3,7 @@
 // subset cannot say which fields go with which mode, so the settings schema lists them all and the Worker checks the
 // merged options itself (./options.ts).
 import { CPU_GROUP, DISK_GROUP, definePlugin } from "fyflow-plugin-sdk";
+import { dataOf } from "./data.ts";
 import { VIDEO_EXTENSIONS } from "./formats.ts";
 
 const absolutePath = (description: string) => ({ type: "string", minLength: 1, description });
@@ -17,7 +18,7 @@ const profileSchema = {
     ),
     fontFile: absolutePath("A TTF font for timestamps; left empty, the bundled DejaVu Sans"),
     outputDir: absolutePath(
-      "Where thumbnails go when a Task names no output; left empty, a folder in the system's temp folder",
+      "Where thumbnails go when a Task names no output; left empty, the Plugin's thumbnails folder in its data directory",
     ),
   },
   additionalProperties: false,
@@ -33,7 +34,7 @@ const settingsSchema = {
   type: "object",
   properties: {
     output: absolutePath(
-      "A .jpg file to write, or a folder to name one in; left empty, the Profile's outputDir or the temp folder",
+      "A .jpg file to write, or a folder to name one in; left empty, the Profile's outputDir or the Plugin's thumbnails folder",
     ),
     overwrite: {
       type: "boolean",
@@ -295,9 +296,11 @@ const videoFilesOutput = {
 
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
-  version: "0.2.0",
-  // The service is downloaded into it on first use (./release.ts), and kept there across Reloads and updates.
+  version: "0.3.0",
+  // The service is downloaded into it on first use (./release.ts), and thumbnails go into it unless a Task or its
+  // Profile says where (./data.ts); the Plugin's Data dialog lists both, for a person to delete.
   dataDir: true,
+  data: dataOf,
   // Every path a Flow names is checked against the Allowed roots a person sets on the Profiles page.
   roots: true,
   base: import.meta.url,

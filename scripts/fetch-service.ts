@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { serviceDir } from "../data.ts";
 import { ASSETS, assetUrl, ensureService, SERVICE_VERSION } from "../release.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -24,7 +25,7 @@ if (import.meta.main) {
       );
     }
   } else {
-    const executable = await ensureService(join(TEST_DATA_DIR, "service"));
+    const executable = await ensureService(serviceDir(TEST_DATA_DIR));
     console.log(`thumbs-collage ${SERVICE_VERSION} is at ${executable}`);
   }
 }

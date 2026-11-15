@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DEFAULT_OUTPUT_DIR } from "../output.ts";
+import { thumbnailsDir } from "../data.ts";
 import { installedExecutable } from "../release.ts";
 import { TEST_DATA_DIR } from "../scripts/fetch-service.ts";
 import { EXECUTABLE } from "../service.ts";
@@ -123,7 +123,7 @@ describe.skipIf(!fetched)("VideoThumbnail (needs `pnpm fetch-service`)", () => {
     await expect(run({}, { path: text })).rejects.toThrow(/The thumbnail service failed/);
   });
 
-  it("refuses a video, or an output, out of the Task's Allowed roots, but writes to its own temp folder", async () => {
+  it("refuses a video, or an output, out of the Task's Allowed roots, but writes to its own folder in its data directory", async () => {
     const readOnly = [{ path: root, access: "read" as const }];
     await expect(run({}, { path: video }, context(), [])).rejects.toThrow(/no Allowed roots/);
     // `dir`, the Profile's outputDir, is in the temp folder: readable here, but not writable.
@@ -134,7 +134,7 @@ describe.skipIf(!fetched)("VideoThumbnail (needs `pnpm fetch-service`)", () => {
       { settings: { profile: {}, roots: readOnly }, input: { path: video } },
       context(),
     )) as ThumbnailResult;
-    expect(own.path.startsWith(DEFAULT_OUTPUT_DIR)).toBe(true);
+    expect(own.path.startsWith(thumbnailsDir(TEST_DATA_DIR))).toBe(true);
   });
 
   it("fails a Task whose options are wrong before asking the service", async () => {

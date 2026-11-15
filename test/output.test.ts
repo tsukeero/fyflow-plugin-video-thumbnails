@@ -1,14 +1,14 @@
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_OUTPUT_DIR, framesOf, metadataOf, outputOf } from "../output.ts";
+import { framesOf, metadataOf, outputOf } from "../output.ts";
 
 const root = process.platform === "win32" ? "C:\\work" : "/work";
 const video = join(root, "videos", "Movie.Final.mp4");
 const stats = { size: 1000, mtimeMs: 1_700_000_000_000 };
 const request = { selection: { mode: "uniform", frames: 1 } };
+const defaultDir = join(root, "data", "thumbnails");
 const of = (output: string | undefined, outputDir?: string) =>
-  outputOf({ output, outputDir, video, stats, request });
+  outputOf({ output, outputDir, defaultDir, video, stats, request });
 
 describe("outputOf", () => {
   it("writes to a path ending in .jpg or .jpeg as it is, never reusing what is there", () => {
@@ -25,19 +25,24 @@ describe("outputOf", () => {
     expect(path).toMatch(/[\\/]thumbs[\\/]Movie\.Final\.[0-9a-f]{12}\.jpg$/);
   });
 
-  it("falls back to the Profile's outputDir, then to a folder in the system's temp folder", () => {
+  it("falls back to the Profile's outputDir, then to the Plugin's own folder", () => {
     expect(of(undefined, join(root, "profile")).path.startsWith(join(root, "profile"))).toBe(true);
-    expect(DEFAULT_OUTPUT_DIR).toBe(join(tmpdir(), "fyflow-video-thumbnails"));
-    expect(of(undefined).path.startsWith(DEFAULT_OUTPUT_DIR)).toBe(true);
+    expect(of(undefined).path.startsWith(defaultDir)).toBe(true);
+  });
+
+  it("asks for a folder when there is no data directory to fall back to", () => {
+    expect(() => outputOf({ video, stats, request })).toThrow(
+      /No folder to put the thumbnail in.*`outputDir`/,
+    );
   });
 
   it("gives the same name for the same video and options, and a new one when either changes", () => {
     const name = of(undefined).path;
     expect(of(undefined).path).toBe(name);
-    expect(outputOf({ video, stats: { ...stats, mtimeMs: 1 }, request }).path).not.toBe(name);
-    expect(outputOf({ video, stats, request: { selection: { mode: "uniform", frames: 2 } } }).path).not.toBe(
-      name,
-    );
+    expect(outputOf({ video, defaultDir, stats: { ...stats, mtimeMs: 1 }, request }).path).not.toBe(name);
+    expect(
+      outputOf({ video, defaultDir, stats, request: { selection: { mode: "uniform", frames: 2 } } }).path,
+    ).not.toBe(name);
   });
 
   it("refuses a relative output or outputDir", () => {
