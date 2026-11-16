@@ -1,6 +1,8 @@
-// The thumbs-collage service, run as a child process: started on a free port of 127.0.0.1, sent one
-// `POST /make_collage` per thumbnail, and heard on its `/ws-progress` WebSocket, which broadcasts every job's progress
-// by job id. It is started with `--exit-on-stdin-close` and its stdin kept open, so it dies with us however we end.
+// The thumbs-collage service, run as a child process: started on a free port of 127.0.0.1, sent one request per job
+// (`POST /make_collage`, `/frames` or `/scenes`), and heard on its `/ws-progress` WebSocket, which broadcasts every
+// job's progress by job id. It is started with `--exit-on-stdin-close` and its stdin kept open, so it dies with us
+// however we end. The Workers share one process for each executable and font (`acquireService`), whichever Node Type
+// and Profile they serve.
 import { type ChildProcess, spawn } from "node:child_process";
 
 /** The service's executable's file name on this platform. */
@@ -8,15 +10,17 @@ export const EXECUTABLE = process.platform === "win32" ? "thumbs-collage.exe" : 
 
 export interface StartOptions {
   executable: string;
+  /** Arguments given before the service's own: tests run a fake service as a script for Node. */
+  args?: readonly string[] | undefined;
   /** A TTF font for timestamp overlays; without one the service draws none. */
   fontFile?: string | undefined;
   /** How long the service may take to say where it listens (10 s unless set). */
-  startTimeoutMs?: number;
+  startTimeoutMs?: number | undefined;
   /** Called once if the service exits without being stopped, with the exit and its last lines of output. */
   onExit?: (error: Error) => void;
 }
 
-export interface CollageOptions {
+export interface JobOptions {
   signal?: AbortSignal | undefined;
   /** The job's progress as the service reports it: a fraction from 0 to 1, and what it is doing. */
   onProgress?: (progress: number, message: string) => void;
@@ -26,18 +30,26 @@ export interface Service {
   readonly url: string;
   readonly pid: number;
   /** Makes one collage, the request in the service's own terms; resolves with the JPEG. */
-  collage(request: Record<string, unknown>, options?: CollageOptions): Promise<Uint8Array>;
+  collage(request: Record<string, unknown>, options?: JobOptions): Promise<Uint8Array>;
+  /** Extracts frames (`POST /frames`, service 0.1.0); resolves with the service's JSON reply. */
+  frames(request: Record<string, unknown>, options?: JobOptions): Promise<unknown>;
+  /** Detects scenes, and picks frames from them if asked (`POST /scenes`, service 0.1.0); resolves with its reply. */
+  scenes(request: Record<string, unknown>, options?: JobOptions): Promise<unknown>;
   /** Stops the service: closes its stdin, and kills it if it has not exited a few seconds later. */
   stop(): Promise<void>;
 }
 
 /** How many of the service's last lines of output an error carries. */
 const TAIL_LINES = 50;
-/** No limit on concurrent jobs worth having in the service: the Worker's pool is what limits them. */
+/**
+ * No limit on concurrent jobs worth having in the service: the Node Types' pools and the Host's Resource Groups are
+ * what limit them, so a Task is never refused (429) for another Node Type's or Profile's jobs on the same service.
+ */
 const MAX_JOBS = 64;
 
 export async function startService(options: StartOptions): Promise<Service> {
   const args = [
+    ...(options.args ?? []),
     "--bind",
     "127.0.0.1:0",
     "--ws-progress",
@@ -181,7 +193,30 @@ class RunningService implements Service {
     });
   }
 
-  async collage(request: Record<string, unknown>, options: CollageOptions = {}): Promise<Uint8Array> {
+  async collage(request: Record<string, unknown>, options: JobOptions = {}): Promise<Uint8Array> {
+    return this.#job(
+      "/make_collage",
+      request,
+      options,
+      async (response) => new Uint8Array(await response.arrayBuffer()),
+    );
+  }
+
+  frames(request: Record<string, unknown>, options: JobOptions = {}): Promise<unknown> {
+    return this.#job("/frames", request, options, (response) => response.json());
+  }
+
+  scenes(request: Record<string, unknown>, options: JobOptions = {}): Promise<unknown> {
+    return this.#job("/scenes", request, options, (response) => response.json());
+  }
+
+  /** Posts one job, reporting its progress, and reads its reply; aborted with the reason if the service dies. */
+  async #job<T>(
+    path: string,
+    request: Record<string, unknown>,
+    options: JobOptions,
+    read: (response: Response) => Promise<T>,
+  ): Promise<T> {
     if (this.#gone !== undefined) throw this.#gone;
     await this.opened();
     const controller = new AbortController();
@@ -192,14 +227,18 @@ class RunningService implements Service {
     const signal =
       options.signal === undefined ? controller.signal : AbortSignal.any([options.signal, controller.signal]);
     try {
-      const response = await fetch(`${this.url}/make_collage`, {
+      const response = await fetch(`${this.url}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(request),
         signal,
       });
+      if (response.status === 404 && path !== "/make_collage")
+        throw new Error(
+          `This thumbs-collage has no ${path}: it is older than 0.1.0. Update it, or clear \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`,
+        );
       if (!response.ok) throw new Error(await refusalOf(response));
-      return new Uint8Array(await response.arrayBuffer());
+      return await read(response);
     } catch (error) {
       throw controller.signal.aborted ? controller.signal.reason : error;
     } finally {
@@ -233,4 +272,88 @@ async function refusalOf(response: Response): Promise<string> {
     return `The thumbnail service is busy (429): ${said}. Lower this Profile's maxConcurrentTasks`;
   if (response.status < 500) return `The thumbnail service refused the request (${response.status}): ${said}`;
   return `The thumbnail service failed (${response.status}): ${said}`;
+}
+
+/** What a service is started with, and so what one is shared by. */
+export interface ServiceKey {
+  executable: string;
+  args?: readonly string[] | undefined;
+  fontFile?: string | undefined;
+}
+
+/** A share of a running service: its holder calls `release()` once, when done with it. */
+export interface Lease extends Omit<Service, "stop"> {
+  /** Lets go of the service; the last holder to let go stops it. */
+  release(): Promise<void>;
+}
+
+interface Shared {
+  started: Promise<Service>;
+  /** Each holder's `onExit`, one entry per lease. */
+  holders: Set<{ onExit: (error: Error) => void }>;
+}
+
+/** The services running in this module, by `keyOf`: one each, however many Workers use it. */
+const shared = new Map<string, Shared>();
+
+const keyOf = ({ executable, args, fontFile }: ServiceKey) =>
+  JSON.stringify([executable, args ?? [], fontFile ?? null]);
+
+/**
+ * A lease on the service started with `key`, started now unless it is running, or starting, already. `onExit` is
+ * called if the process dies under the lease (each holder's, then the next acquire starts a new one); it is never
+ * called after `release()`.
+ */
+export async function acquireService(
+  key: ServiceKey & Pick<StartOptions, "startTimeoutMs">,
+  onExit: (error: Error) => void = () => {},
+): Promise<Lease> {
+  const id = keyOf(key);
+  let entry = shared.get(id);
+  if (entry === undefined) {
+    const holders: Shared["holders"] = new Set();
+    const started = startService({
+      executable: key.executable,
+      args: key.args,
+      fontFile: key.fontFile,
+      startTimeoutMs: key.startTimeoutMs,
+      onExit: (error) => {
+        if (shared.get(id) === created) shared.delete(id);
+        for (const holder of [...holders]) holder.onExit(error);
+      },
+    });
+    const created: Shared = { started, holders };
+    entry = created;
+    shared.set(id, created);
+    started.catch(() => {
+      if (shared.get(id) === created) shared.delete(id);
+    });
+  }
+  const { holders, started } = entry;
+  const holder = { onExit };
+  holders.add(holder);
+  let service: Service;
+  try {
+    service = await started;
+  } catch (error) {
+    holders.delete(holder);
+    throw error;
+  }
+  const owner = entry;
+  let released = false;
+  return {
+    url: service.url,
+    pid: service.pid,
+    collage: (request, options) => service.collage(request, options),
+    frames: (request, options) => service.frames(request, options),
+    scenes: (request, options) => service.scenes(request, options),
+    async release() {
+      if (released) return;
+      released = true;
+      holders.delete(holder);
+      if (holders.size > 0) return;
+      if (shared.get(id) === owner) shared.delete(id);
+      await service.stop();
+    },
+  };
 }

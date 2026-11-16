@@ -1,5 +1,5 @@
-// `fyflow-ext.video-thumbnail`: video thumbnails and contact sheets, made by a thumbs-collage service the Worker runs
-// beside the Host. Every option may be a Node setting or a field of the Task input; a setting wins. fyflow's schema
+// `fyflow-ext.video-thumbnail`: video thumbnails and contact sheets, frames and scene cuts, made by a thumbs-collage
+// service the Workers share beside the Host. Every option may be a Node setting or a field of the Task input; a setting wins. fyflow's schema
 // subset cannot say which fields go with which mode, so the settings schema lists them all and the Worker checks the
 // merged options itself (./options.ts).
 import { CPU_GROUP, DISK_GROUP, definePlugin } from "fyflow-plugin-sdk";
@@ -18,7 +18,7 @@ const profileSchema = {
     ),
     fontFile: absolutePath("A TTF font for timestamps; left empty, the bundled DejaVu Sans"),
     outputDir: absolutePath(
-      "Where thumbnails go when a Task names no output; left empty, the Plugin's thumbnails folder in its data directory",
+      "Where thumbnails, frame folders and scene folders go when a Task names no output; left empty, the Plugin's own folders in its data directory",
     ),
   },
   additionalProperties: false,
@@ -155,6 +155,292 @@ const outputSchema = {
       height: 360,
       frames: [{ requested: 377.1, actual: 377.1 }],
       reused: false,
+    },
+  ],
+};
+
+// `ExtractFrames` and `DetectScenes` write a folder each, holding the images and a manifest.
+const folderSettings = {
+  output: absolutePath(
+    "A folder to make the job's folder in; left empty, the Profile's outputDir or the Plugin's own folder",
+  ),
+  overwrite: {
+    type: "boolean",
+    description: "Run the job again even if this video and these options made a folder there before",
+  },
+  lists: {
+    enum: ["file", "result"],
+    description:
+      "file (the default): the lists stay in the folder's manifest, for fyflow.fs ReadFile; result: also in the result, with absolute paths, for a map right after",
+  },
+};
+
+const imageSettings = {
+  width: count("Each image's width in pixels; left empty, 640 unless a height is set"),
+  height: count("Each image's height in pixels; left empty, from the width and the video's shape"),
+  fit: {
+    enum: ["contain", "cover", "stretch"],
+    description:
+      "With both width and height: contain (the default) fits inside, cover crops, stretch distorts",
+  },
+  format: { enum: ["jpeg", "png"], description: "jpeg (the default) or png" },
+  quality: { type: "integer", minimum: 1, maximum: 100, description: "JPEG quality; left empty, 80" },
+};
+
+const framesSettings = {
+  type: "object",
+  properties: {
+    ...folderSettings,
+    selection: {
+      ...settingsSchema.properties.selection,
+      description:
+        "Which frames: `uniform` takes `frames` evenly spaced, `timestamps` the ones listed; left empty, 8 evenly spaced",
+    },
+    ...imageSettings,
+    skipBlankFrames: settingsSchema.properties.skipBlankFrames,
+    forceFallback: settingsSchema.properties.forceFallback,
+  },
+  additionalProperties: false,
+};
+
+const framesInput = {
+  type: "object",
+  description:
+    "The video at `path`, and any of the Node's settings below: a setting the Node has wins over the same field here",
+  required: ["path"],
+  properties: { path: absolutePath("The video, an absolute path"), ...framesSettings.properties },
+  examples: [{ path: EXAMPLE_VIDEO }],
+};
+
+const folderResult = {
+  folder: { type: "string", description: "the job's folder, an absolute path" },
+  manifest: {
+    type: "string",
+    description: "its manifest, an absolute path: read it with fyflow.fs ReadFile",
+  },
+  video: { type: "string", description: "the video's absolute path" },
+  duration: { type: "number", description: "the video's length in seconds" },
+  reused: { type: "boolean", description: "true when an earlier Task had made the folder already" },
+};
+
+const EXAMPLE_FRAMES_FOLDER = `${EXAMPLE_FOLDER}/frames/holiday.3f9a1c2e7b40`;
+
+const framesOutput = {
+  type: "object",
+  required: ["folder", "manifest", "count", "video", "duration", "reused"],
+  properties: {
+    ...folderResult,
+    count: {
+      type: "integer",
+      description:
+        "how many frames were extracted: a map over no frames never reaches its join, so route around it on 0",
+    },
+    frames: {
+      type: "array",
+      description: "with lists: result, each frame extracted, for a map over `frames`",
+      items: {
+        type: "object",
+        required: ["path", "index", "requested", "actual"],
+        properties: {
+          path: { type: "string", description: "the image's absolute path" },
+          index: { type: "integer", description: "its place in the selection" },
+          requested: { type: "number", description: "the timestamp asked for, in seconds" },
+          actual: { type: "number", description: "the one used, after skipping blank frames" },
+        },
+      },
+    },
+    missing: {
+      type: "array",
+      items: { type: "integer" },
+      description: "with lists: result, the places in the selection of frames that could not be decoded",
+    },
+  },
+  examples: [
+    {
+      folder: EXAMPLE_FRAMES_FOLDER,
+      manifest: `${EXAMPLE_FRAMES_FOLDER}/frames.json`,
+      count: 2,
+      video: EXAMPLE_VIDEO,
+      duration: 754.2,
+      reused: false,
+      frames: [
+        { path: `${EXAMPLE_FRAMES_FOLDER}/frame_000.jpg`, index: 0, requested: 251.4, actual: 251.4 },
+        { path: `${EXAMPLE_FRAMES_FOLDER}/frame_001.jpg`, index: 1, requested: 502.8, actual: 502.8 },
+      ],
+      missing: [],
+    },
+  ],
+};
+
+const scenesSettings = {
+  type: "object",
+  properties: {
+    ...folderSettings,
+    hint: {
+      enum: ["anime", "cg", "real"],
+      description:
+        "What kind of video this is, picking the detector's defaults for it: anime, cg (3D animation) or real (live action); explicit settings win",
+    },
+    detector: {
+      enum: ["content", "scdet", "keyframes"],
+      description:
+        "content (the default) and scdet decode the whole video; keyframes reads only packet flags, fast but only as good as the encoder's keyframes",
+    },
+    threshold: {
+      type: "number",
+      minimum: 0,
+      description: "The score at which a cut fires; left empty, the detector's",
+    },
+    minSceneLen: seconds("The shortest scene in seconds; left empty, 0.6"),
+    frames: {
+      type: "object",
+      description:
+        "Frames to pick from each scene in the same pass; left empty, only the scenes are detected",
+      properties: {
+        every: seconds("Seconds per frame; left empty, 2"),
+        minPerScene: {
+          type: "integer",
+          minimum: 0,
+          description: "At least this many per scene; left empty, 1",
+        },
+        maxPerScene: count("At most this many per scene; left empty, 3"),
+        margin: seconds("Seconds left out at both ends of a scene; left empty, 0.25"),
+        maxFrames: count("At most this many frames in all"),
+        ...imageSettings,
+      },
+      additionalProperties: false,
+    },
+    skipBlankFrames: {
+      type: "boolean",
+      description: "With frames: pick the nearest frame that is not blank instead (on unless set off)",
+    },
+    advanced: {
+      type: "object",
+      description: "Tuning the detector: the service refuses a field the chosen detector does not use",
+      properties: {
+        adaptive: {
+          type: ["object", "null"],
+          description:
+            "content and scdet: a cut must also stand out from its neighbours; null turns off the layer a hint adds",
+          properties: {
+            ratio: { type: "number", minimum: 0, description: "left empty, 3" },
+            window: { type: "integer", minimum: 1, description: "frames on each side; left empty, 2" },
+            minScore: { type: "number", minimum: 0, description: "left empty, content 15, scdet 4" },
+          },
+          additionalProperties: false,
+        },
+        flashFilter: {
+          enum: ["merge", "suppress", "off"],
+          description:
+            "How minSceneLen is kept: merge (the default) a burst of cuts into one, or suppress the later ones",
+        },
+        weights: {
+          type: "object",
+          description: "content: how much hue, saturation and luminance count; left empty, 1 each",
+          properties: {
+            hue: { type: "number", minimum: 0 },
+            sat: { type: "number", minimum: 0 },
+            lum: { type: "number", minimum: 0 },
+          },
+          additionalProperties: false,
+        },
+        skipNonref: {
+          type: "boolean",
+          description:
+            "content and scdet: decode only the frames others refer to, 1.3 to 2 times faster and slightly less precise",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  additionalProperties: false,
+};
+
+const scenesInput = {
+  type: "object",
+  description:
+    "The video at `path`, and any of the Node's settings below: a setting the Node has wins over the same field here",
+  required: ["path"],
+  properties: { path: absolutePath("The video, an absolute path"), ...scenesSettings.properties },
+  examples: [{ path: EXAMPLE_VIDEO }],
+};
+
+const EXAMPLE_SCENES_FOLDER = `${EXAMPLE_FOLDER}/scenes/holiday.8c41d07e93a2`;
+
+const scenesOutput = {
+  type: "object",
+  required: ["folder", "manifest", "count", "frameCount", "video", "duration", "detector", "reused"],
+  properties: {
+    ...folderResult,
+    count: {
+      type: "integer",
+      description: "how many scenes: a map over none never reaches its join, so route around it on 0",
+    },
+    frameCount: { type: "integer", description: "how many frames were picked, 0 without frames" },
+    detector: { type: "string", description: "the detector used" },
+    scenes: {
+      type: "array",
+      description: "with lists: result, each scene, its times in seconds, end exclusive",
+      items: {
+        type: "object",
+        required: ["index", "start", "end", "mid"],
+        properties: {
+          index: { type: "integer" },
+          start: { type: "number" },
+          end: { type: "number" },
+          mid: {
+            type: "number",
+            description: "its middle, as a timestamp for VideoThumbnail or ExtractFrames",
+          },
+        },
+      },
+    },
+    frames: {
+      type: "array",
+      description: "with lists: result, each frame picked, for a map over `frames`",
+      items: {
+        type: "object",
+        required: ["path", "index", "scene", "target", "timestamp"],
+        properties: {
+          path: { type: "string", description: "the image's absolute path" },
+          index: { type: "integer" },
+          scene: { type: "integer", description: "the scene it is from" },
+          target: { type: "number", description: "where in the scene it was meant to be, in seconds" },
+          timestamp: { type: "number", description: "the frame's own time, in seconds" },
+        },
+      },
+    },
+  },
+  examples: [
+    {
+      folder: EXAMPLE_SCENES_FOLDER,
+      manifest: `${EXAMPLE_SCENES_FOLDER}/scenes.json`,
+      count: 2,
+      frameCount: 2,
+      video: EXAMPLE_VIDEO,
+      duration: 14.5,
+      detector: "content",
+      reused: false,
+      scenes: [
+        { index: 0, start: 0, end: 8.5, mid: 4.25 },
+        { index: 1, start: 8.5, end: 14.5, mid: 11.5 },
+      ],
+      frames: [
+        {
+          path: `${EXAMPLE_SCENES_FOLDER}/frame_0000.jpg`,
+          index: 0,
+          scene: 0,
+          target: 4.25,
+          timestamp: 4.24,
+        },
+        {
+          path: `${EXAMPLE_SCENES_FOLDER}/frame_0001.jpg`,
+          index: 1,
+          scene: 1,
+          target: 11.5,
+          timestamp: 11.51,
+        },
+      ],
     },
   ],
 };
@@ -296,7 +582,7 @@ const videoFilesOutput = {
 
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
-  version: "0.3.0",
+  version: "0.4.0",
   // The service is downloaded into it on first use (./release.ts), and thumbnails go into it unless a Task or its
   // Profile says where (./data.ts); the Plugin's Data dialog lists both, for a person to delete.
   dataDir: true,
@@ -310,6 +596,18 @@ export default definePlugin({
   },
   workers: {
     thumbnail: { url: "./thumbnail.worker.ts", settingsSchema, inputSchema, outputSchema },
+    frames: {
+      url: "./frames.worker.ts",
+      settingsSchema: framesSettings,
+      inputSchema: framesInput,
+      outputSchema: framesOutput,
+    },
+    scenes: {
+      url: "./scenes.worker.ts",
+      settingsSchema: scenesSettings,
+      inputSchema: scenesInput,
+      outputSchema: scenesOutput,
+    },
     videoFiles: {
       url: "./video-files.worker.ts",
       settingsSchema: videoFilesSettings,
@@ -337,6 +635,26 @@ export default definePlugin({
       groups: [CPU_GROUP, DISK_GROUP],
       icon: "image",
       description: "Makes a JPEG thumbnail or contact sheet of a video's frames.",
+    },
+    ExtractFrames: {
+      worker: "frames",
+      // As VideoThumbnail: the decoding is in the service's process, which the three service Node Types share.
+      inline: true,
+      pool: { maxThreads: 1, maxConcurrentTasks: 4, idleTimeout: 30_000 },
+      profile: ["executablePath", "fontFile", "outputDir"],
+      groups: [CPU_GROUP, DISK_GROUP],
+      icon: "camera",
+      description: "Extracts frames of a video as separate images.",
+    },
+    DetectScenes: {
+      worker: "scenes",
+      // As ExtractFrames, but each Task decodes the whole video (unless the detector is keyframes): two at once.
+      inline: true,
+      pool: { maxThreads: 1, maxConcurrentTasks: 2, idleTimeout: 30_000 },
+      profile: ["executablePath", "fontFile", "outputDir"],
+      groups: [CPU_GROUP, DISK_GROUP],
+      icon: "play",
+      description: "Finds a video's scene cuts, and frames from each scene.",
     },
     VideoFiles: {
       worker: "videoFiles",

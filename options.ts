@@ -140,7 +140,7 @@ function checked(options: Record<string, unknown>): ThumbnailOptions {
   return options as unknown as ThumbnailOptions;
 }
 
-function checkSelection(selection: unknown): asserts selection is Selection {
+export function checkSelection(selection: unknown): asserts selection is Selection {
   const s = object("selection", selection);
   oneOf("selection.mode", s.mode, ["uniform", "timestamps"]);
   if (s.mode === "uniform") {
@@ -184,22 +184,22 @@ function checkCollage(collage: unknown): asserts collage is Collage {
   }
 }
 
-const fail = (name: string, must: string, value: unknown): never => {
+export const fail = (name: string, must: string, value: unknown): never => {
   throw new Error(`\`${name}\` must be ${must}, not ${JSON.stringify(value)}`);
 };
 
-function object(name: string, value: unknown): Record<string, unknown> {
+export function object(name: string, value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) fail(name, "an object", value);
   return value as Record<string, unknown>;
 }
 
-function list(name: string, value: unknown): unknown[] {
+export function list(name: string, value: unknown): unknown[] {
   if (!Array.isArray(value) || value.length === 0) fail(name, "a non-empty list", value);
   return value as unknown[];
 }
 
 /** Refuses a key `value` has beyond `keys`: a typo, or a field of the other mode. */
-function only(name: string, value: Record<string, unknown>, mode: string | undefined, keys: string[]) {
+export function only(name: string, value: Record<string, unknown>, mode: string | undefined, keys: string[]) {
   for (const key of Object.keys(value))
     if (key !== "mode" && !keys.includes(key))
       throw new Error(
@@ -209,21 +209,21 @@ function only(name: string, value: Record<string, unknown>, mode: string | undef
       );
 }
 
-function oneOf(name: string, value: unknown, allowed: readonly unknown[]) {
+export function oneOf(name: string, value: unknown, allowed: readonly unknown[]) {
   if (!allowed.includes(value))
     fail(name, `one of ${allowed.map((a) => JSON.stringify(a)).join(", ")}`, value);
 }
 
-function bool(name: string, value: unknown) {
+export function bool(name: string, value: unknown) {
   if (typeof value !== "boolean") fail(name, "true or false", value);
 }
 
-function number(name: string, value: unknown, min: number) {
+export function number(name: string, value: unknown, min: number) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < min)
     fail(name, `a number of at least ${min}`, value);
 }
 
-function integer(name: string, value: unknown, min: number) {
+export function integer(name: string, value: unknown, min: number) {
   if (!Number.isInteger(value) || (value as number) < min) fail(name, `an integer of at least ${min}`, value);
 }
 
@@ -242,15 +242,7 @@ export function requestOf(path: string, options: ThumbnailOptions, jobId: string
   const request: Record<string, unknown> = {
     path,
     job_id: jobId,
-    selection:
-      selection.mode === "uniform"
-        ? defined({
-            mode: "uniform",
-            frames: selection.frames,
-            start_offset: selection.startOffset,
-            end_offset: selection.endOffset,
-          })
-        : { mode: "timestamps", timestamps: selection.timestamps },
+    selection: selectionOf(selection),
     collage: defined({
       ...(collage.mode === "grid"
         ? { mode: "grid", rows: collage.rows, cols: collage.cols }
@@ -281,7 +273,19 @@ export function requestOf(path: string, options: ThumbnailOptions, jobId: string
   });
 }
 
+/** A selection in the service's terms. */
+export function selectionOf(selection: Selection): Record<string, unknown> {
+  return selection.mode === "uniform"
+    ? defined({
+        mode: "uniform",
+        frames: selection.frames,
+        start_offset: selection.startOffset,
+        end_offset: selection.endOffset,
+      })
+    : { mode: "timestamps", timestamps: selection.timestamps };
+}
+
 /** `value` without its undefined fields. */
-function defined(value: Record<string, unknown>): Record<string, unknown> {
+export function defined(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
 }

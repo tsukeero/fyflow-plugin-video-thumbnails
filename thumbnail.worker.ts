@@ -1,40 +1,17 @@
-// The `VideoThumbnail` Worker. Its pool is inline with one instance per Profile, and that instance owns one
-// thumbs-collage service: started in `setup()`, stopped in `teardown()`, and asked for every Task's thumbnail, so
-// the decoding happens in the service's process, never on the Host's thread.
+// The `VideoThumbnail` Worker. Its pool is inline with one instance per Profile, and that instance holds a lease on
+// the thumbs-collage service (./service-worker.ts), asked for every Task's thumbnail, so the decoding happens in the
+// service's process, never on the Host's thread.
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  allowedPath,
-  type HostConfig,
-  type PoolContext,
-  type TaskEnvelope,
-  type Worker,
-  type WorkerContext,
-} from "fyflow-plugin-sdk";
-import { serviceDir, thumbnailsDir } from "./data.ts";
+import { dirname } from "node:path";
+import { allowedPath, type TaskEnvelope, type Worker, type WorkerContext } from "fyflow-plugin-sdk";
+import { THUMBNAILS } from "./data.ts";
 import { fieldOf, optionsOf, pathFrom, requestOf } from "./options.ts";
 import { framesOf, metadataOf, outputOf } from "./output.ts";
-import { ensureService } from "./release.ts";
-import { type Service, startService } from "./service.ts";
+import { outputDirOf, type ProfileFields, ServiceWorker } from "./service-worker.ts";
 
-/** The Profile's start-up fields: every one optional, each overriding where this Plugin looks by itself. */
-export interface Config {
-  /**
-   * The Plugin's data directory, where the service is downloaded to and thumbnails go by default; the Host gives it
-   * (`dataDir: true`).
-   */
-  host?: HostConfig;
-  executablePath?: string;
-  fontFile?: string;
-}
-
-/** The Profile's per-Task fields, under each Task's `settings.profile`; a Flow or its Node may set its own. */
-export interface ProfileFields {
-  outputDir?: string;
-}
+export type { Config, ProfileFields } from "./service-worker.ts";
 
 export interface ThumbnailResult {
   /** The thumbnail's absolute path. */
@@ -57,54 +34,10 @@ interface Metadata {
   frames?: unknown;
 }
 
-const root = fileURLToPath(new URL(".", import.meta.url));
-
 export default class VideoThumbnail
+  extends ServiceWorker
   implements Worker<Record<string, unknown>, unknown, ThumbnailResult, ProfileFields>
 {
-  readonly #config: Config;
-  readonly #pool: PoolContext | undefined;
-  #service: Service | undefined;
-
-  constructor(config: Config, pool?: PoolContext) {
-    this.#config = config;
-    this.#pool = pool;
-  }
-
-  async setup(): Promise<void> {
-    const executable = await this.#executable();
-    this.#service = await startService({
-      executable,
-      fontFile: this.#config.fontFile ?? join(root, "assets", "fonts", "DejaVuSans.ttf"),
-      // Its Tasks in flight have failed already; the pool builds a new instance, and with it a new service.
-      onExit: (error) => this.#pool?.terminateWithError(error, { canRestart: true }),
-    });
-  }
-
-  /** The Profile's `executablePath`, else the pinned release, downloaded into the Plugin's data directory once. */
-  async #executable(): Promise<string> {
-    const given = this.#config.executablePath;
-    if (given !== undefined) {
-      if (!existsSync(given))
-        throw new Error(
-          `No thumbnail service at "${given}", the \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`,
-        );
-      return given;
-    }
-    const dataDir = this.#config.host?.dataDir;
-    if (dataDir === undefined)
-      throw new Error(
-        "No data directory to download the thumbnail service to: this Host is older than fyflow-plugin-sdk 0.6.0. Set `executablePath` in the fyflow-ext.video-thumbnail section of this Node's Profile",
-      );
-    return ensureService(serviceDir(dataDir));
-  }
-
-  async teardown(): Promise<void> {
-    const service = this.#service;
-    this.#service = undefined;
-    await service?.stop();
-  }
-
   async run(
     envelope: TaskEnvelope<Record<string, unknown>, unknown, ProfileFields>,
     context: WorkerContext,
@@ -120,10 +53,7 @@ export default class VideoThumbnail
     const overwrite = fieldOf(envelope, "overwrite");
     if (overwrite !== undefined && typeof overwrite !== "boolean")
       throw new Error(`\`overwrite\` must be true or false, not ${JSON.stringify(overwrite)}`);
-    // Absent when fyflow runs this Worker without a Host, which is what adds `profile`.
-    const outputDir: unknown = envelope.settings.profile?.outputDir;
-    if (outputDir !== undefined && typeof outputDir !== "string")
-      throw new Error(`\`outputDir\` must be a path, not ${JSON.stringify(outputDir)}`);
+    const outputDir = outputDirOf(envelope);
 
     // Every path a Flow can name is checked against the Task's Allowed roots, and used where it really leads.
     const { roots } = envelope.settings;
@@ -131,8 +61,7 @@ export default class VideoThumbnail
     const stats = await stat(readable).catch(() => {
       throw new Error(`No video at "${video}"`);
     });
-    const dataDir = this.#config.host?.dataDir;
-    const defaultDir = dataDir === undefined ? undefined : thumbnailsDir(dataDir);
+    const defaultDir = this.ownDir(THUMBNAILS);
     const target = outputOf({ output, outputDir, defaultDir, video, stats, request });
     // The Plugin's own folder in its data directory is no path a Flow names, so it needs no root.
     const writable =
@@ -145,9 +74,7 @@ export default class VideoThumbnail
       return result;
     }
 
-    const service = this.#service;
-    if (service === undefined)
-      throw new Error("The thumbnail service is not running: this Worker was not set up");
+    const service = this.service;
     context.sendProgress(0, "Extracting frames");
     const jpeg = await service.collage(
       { ...request, path: readable, job_id: jobId },

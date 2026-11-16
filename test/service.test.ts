@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { installedExecutable } from "../release.ts";
 import { TEST_DATA_DIR } from "../scripts/fetch-service.ts";
-import { type Service, startService } from "../service.ts";
+import { acquireService, type Lease, type Service, startService } from "../service.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const executable = installedExecutable(join(TEST_DATA_DIR, "service")) ?? "";
@@ -70,5 +70,63 @@ describe.skipIf(!existsSync(executable))("startService (needs `pnpm fetch-servic
 
   it("refuses to start an executable that is not there, naming it", async () => {
     await expect(startService({ executable: join(root, "nope.exe") })).rejects.toThrow(/nope\.exe/);
+  });
+});
+
+// A fake service run by Node: no `pnpm fetch-service` needed.
+const fake = { executable: process.execPath, args: [join(root, "test", "fake-service.ts")] };
+
+describe("acquireService", () => {
+  const leases: Lease[] = [];
+  const acquire = async (
+    onExit?: (error: Error) => void,
+    key: typeof fake & { fontFile?: string } = fake,
+  ) => {
+    const lease = await acquireService(key, onExit);
+    leases.push(lease);
+    return lease;
+  };
+  afterEach(async () => {
+    for (const lease of leases.splice(0)) await lease.release();
+  });
+
+  it("shares one process between leases, also while it is starting, and the last release stops it", async () => {
+    const [a, b] = await Promise.all([acquire(), acquire()]);
+    const c = await acquire();
+    expect(b.pid).toBe(a.pid);
+    expect(c.pid).toBe(a.pid);
+    await a.release();
+    await a.release();
+    await b.release();
+    expect(exited(a.pid)).toBe(false);
+    await c.release();
+    expect(exited(a.pid)).toBe(true);
+    const d = await acquire();
+    expect(d.pid).not.toBe(a.pid);
+  });
+
+  it("starts one process for each executable and font", async () => {
+    const a = await acquire();
+    const b = await acquire(undefined, { ...fake, fontFile: "other.ttf" });
+    expect(b.pid).not.toBe(a.pid);
+  });
+
+  it("tells every holder when the process dies, and the next acquire starts a new one", async () => {
+    const died: Error[] = [];
+    const a = await acquire((error) => died.push(error));
+    await acquire((error) => died.push(error));
+    process.kill(a.pid);
+    await expect.poll(() => died.length).toBe(2);
+    expect(died[0]?.message).toMatch(/exited unexpectedly/);
+    const c = await acquire();
+    expect(c.pid).not.toBe(a.pid);
+  });
+
+  it("says a service without /frames or /scenes is older than 0.1.0, naming executablePath", async () => {
+    const lease = await acquire();
+    await expect(lease.frames({ path: "x" })).rejects.toThrow(
+      /This thumbs-collage has no \/frames: it is older than 0\.1\.0\. Update it, or clear `executablePath`/,
+    );
+    await expect(lease.scenes({ path: "x" })).rejects.toThrow(/has no \/scenes/);
   });
 });

@@ -77,7 +77,7 @@ describe("the Plugin's declarations", () => {
   });
 
   it("has input schemas that take every input its Workers take, as fyflow holds a Run's input to them", () => {
-    const { thumbnail, videoFiles, isVideo } = plugin.workers as Record<
+    const { thumbnail, frames, scenes, videoFiles, isVideo } = plugin.workers as Record<
       string,
       { inputSchema: Record<string, unknown> }
     >;
@@ -94,6 +94,9 @@ describe("the Plugin's declarations", () => {
     expect(findings(thumbnail?.inputSchema ?? {}, {})).not.toEqual([]); // `path` is the input's
     fits(thumbnail?.inputSchema, { path: "D:/a.mp4", video: true, container: "mp4" }); // an IsVideo result
     fits(thumbnail?.inputSchema, entry);
+    fits(frames?.inputSchema, entry);
+    fits(scenes?.inputSchema, entry);
+    expect(findings(frames?.inputSchema ?? {}, {})).not.toEqual([]);
     fits(videoFiles?.inputSchema, { path: "D:/", entries: [entry, "D:/b.mkv"] });
     fits(videoFiles?.inputSchema, ["D:/a.mp4"]); // `list: "."`
     fits(videoFiles?.inputSchema, { listing: { files: [] } }); // `list: "listing.files"`
@@ -177,6 +180,82 @@ describe.skipIf(!existsSync(installedExecutable(join(TEST_DATA_DIR, "service")) 
         const none = await runtime.start(flow, { entries: [join(root, "README.md")] }).done;
         expect(none.outcome).toBe("completed");
         expect(Object.values(none.nodes).some((n) => n.nodeId === "thumb")).toBe(false);
+      } finally {
+        await runtime.shutdown();
+      }
+    });
+
+    it("runs ExtractFrames with lists: result before a map over its frames", async () => {
+      const flow: FlowDefinition = {
+        flowId: "frames",
+        version: 1,
+        entry: "extract",
+        nodes: [
+          {
+            id: "extract",
+            kind: "task",
+            type: "ExtractFrames",
+            settings: { output: dir, lists: "result", selection: { mode: "uniform", frames: 3 }, width: 64 },
+            edges: [
+              { to: "each", when: { path: "outcome.result.count", op: "gt", value: 0 } },
+              { to: "done" },
+            ],
+          },
+          { id: "each", kind: "map", over: "frames", branch: "check" },
+          // Each frame's `{ path }` reaches the branch, as it would a classifier's.
+          { id: "check", kind: "task", type: "IsVideo", edges: [{ to: "gather" }] },
+          { id: "gather", kind: "join", of: "each", edges: [{ to: "done" }] },
+          { id: "done", kind: "end", outcome: "completed" },
+        ],
+      };
+      expect(validateDefinition(flow, judgedBy())).toEqual([]);
+      const runtime = createRuntime(registryOf(hostConfig), {}, { base: plugin.base });
+      try {
+        const state = await runtime.start(flow, { path: video }).done;
+        expect(state.outcome).toBe("completed");
+        const checked = Object.values(state.nodes).filter((n) => n.nodeId === "check");
+        expect(checked.map((n) => (n.result as { path: string }).path).sort()).toEqual(
+          ["frame_000.jpg", "frame_001.jpg", "frame_002.jpg"].map((name) =>
+            expect.stringMatching(new RegExp(`${name.replace(".", ".")}$`)),
+          ),
+        );
+      } finally {
+        await runtime.shutdown();
+      }
+    });
+
+    it("runs DetectScenes picking frames before a map over them", async () => {
+      const flow: FlowDefinition = {
+        flowId: "scenes",
+        version: 1,
+        entry: "detect",
+        nodes: [
+          {
+            id: "detect",
+            kind: "task",
+            type: "DetectScenes",
+            settings: { output: dir, lists: "result", frames: { every: 2, width: 64 } },
+            edges: [
+              { to: "each", when: { path: "outcome.result.frameCount", op: "gt", value: 0 } },
+              { to: "done" },
+            ],
+          },
+          { id: "each", kind: "map", over: "frames", branch: "check" },
+          { id: "check", kind: "task", type: "IsVideo", edges: [{ to: "gather" }] },
+          { id: "gather", kind: "join", of: "each", edges: [{ to: "done" }] },
+          { id: "done", kind: "end", outcome: "completed" },
+        ],
+      };
+      expect(validateDefinition(flow, judgedBy())).toEqual([]);
+      const runtime = createRuntime(registryOf(hostConfig), {}, { base: plugin.base });
+      try {
+        const state = await runtime.start(flow, { path: video }).done;
+        expect(state.outcome).toBe("completed");
+        const detect = Object.values(state.nodes).find((n) => n.nodeId === "detect");
+        const { count, frameCount } = (detect?.result ?? {}) as { count?: number; frameCount?: number };
+        expect(count).toBe(2);
+        const checked = Object.values(state.nodes).filter((n) => n.nodeId === "check");
+        expect(checked.length).toBe(frameCount);
       } finally {
         await runtime.shutdown();
       }

@@ -30,22 +30,40 @@ export interface Output {
 export function outputOf({ output, outputDir, defaultDir, video, stats, request }: OutputQuery): Output {
   if (output !== undefined && !absolute(output))
     throw new Error(`\`output\` must be an absolute path: "${output}" is relative`);
+  if (output !== undefined && /\.jpe?g$/i.test(output)) return { path: resolve(output), named: false };
+  const folder = baseOf({ output, outputDir, defaultDir }, "the thumbnail");
+  return { path: join(folder, `${nameOf(video, stats, request)}.jpg`), named: true };
+}
+
+/**
+ * The folder a job's own folder goes in: the Task's `output`, else its `outputDir`, else the Plugin's own. `what` is
+ * what goes there, for the error when there is none.
+ */
+export function baseOf(
+  { output, outputDir, defaultDir }: Pick<OutputQuery, "output" | "outputDir" | "defaultDir">,
+  what: string,
+): string {
+  if (output !== undefined && !absolute(output))
+    throw new Error(`\`output\` must be an absolute path: "${output}" is relative`);
   if (output === undefined && outputDir !== undefined && !absolute(outputDir))
     throw new Error(
       `\`outputDir\` must be an absolute path: "${outputDir}" is relative; fix it where it is set, in the fyflow-ext.video-thumbnail section of this Node's Profile or in the Flow's own values`,
     );
-  if (output !== undefined && /\.jpe?g$/i.test(output)) return { path: resolve(output), named: false };
   const given = output ?? outputDir ?? defaultDir;
   if (given === undefined)
     throw new Error(
-      "No folder to put the thumbnail in: this Host gives the Plugin no data directory, so set `output`, or `outputDir` in the fyflow-ext.video-thumbnail section of this Node's Profile",
+      `No folder to put ${what} in: this Host gives the Plugin no data directory, so set \`output\`, or \`outputDir\` in the fyflow-ext.video-thumbnail section of this Node's Profile`,
     );
-  const folder = resolve(given);
+  return resolve(given);
+}
+
+/** The video's name and a hash of what makes the output: the same video, unchanged, and request make the same name. */
+export function nameOf(video: string, stats: { size: number; mtimeMs: number }, request: unknown): string {
   const hash = createHash("sha256")
     .update(JSON.stringify({ video, size: stats.size, mtimeMs: stats.mtimeMs, request }))
     .digest("hex")
     .slice(0, 12);
-  return { path: join(folder, `${basename(video, extname(video))}.${hash}.jpg`), named: true };
+  return `${basename(video, extname(video))}.${hash}`;
 }
 
 /**
