@@ -7,6 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setDownload } from "./activity.ts";
 import { EXECUTABLE } from "./service.ts";
 
 export const SERVICE_VERSION = "0.1.0";
@@ -93,14 +94,20 @@ async function install(dir: string, folder: string, asset: Asset, options: Ensur
   const url = options.url ?? assetUrl(asset);
   const attempts = options.attempts ?? 3;
   let bytes: Uint8Array | undefined;
-  for (let attempt = 1; bytes === undefined; attempt++) {
-    try {
-      bytes = await download(url);
-    } catch (error) {
-      if (attempt >= attempts)
-        throw new Error(`Could not download the thumbnail service from ${url}: ${(error as Error).message}`);
-      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+  try {
+    for (let attempt = 1; bytes === undefined; attempt++) {
+      try {
+        bytes = await download(url);
+      } catch (error) {
+        if (attempt >= attempts)
+          throw new Error(
+            `Could not download the thumbnail service from ${url}: ${(error as Error).message}`,
+          );
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
     }
+  } finally {
+    setDownload(undefined);
   }
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   if (sha256 !== asset.sha256)
@@ -132,10 +139,29 @@ async function install(dir: string, folder: string, asset: Asset, options: Ensur
   }
 }
 
+/** How often a download's progress is passed on, at most. */
+const PROGRESS_EVERY_MS = 500;
+
+/** The archive at `url`, its progress passed on (./activity.ts) for the Plugin's status and the Tasks waiting. */
 async function download(url: string): Promise<Uint8Array> {
   const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(10 * 60_000) });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return new Uint8Array(await response.arrayBuffer());
+  const length = Number(response.headers.get("content-length"));
+  const total = Number.isFinite(length) && length > 0 ? length : undefined;
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  let reported = 0;
+  setDownload({ version: SERVICE_VERSION, received, total });
+  if (response.body === null) return new Uint8Array(await response.arrayBuffer());
+  for await (const chunk of response.body) {
+    chunks.push(chunk);
+    received += chunk.length;
+    if (Date.now() - reported >= PROGRESS_EVERY_MS) {
+      reported = Date.now();
+      setDownload({ version: SERVICE_VERSION, received, total });
+    }
+  }
+  return Buffer.concat(chunks);
 }
 
 /**

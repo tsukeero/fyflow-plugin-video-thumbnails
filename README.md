@@ -46,12 +46,13 @@ there (`npm install fyflow-plugin-sdk` in the Plugin directory), then Reload.
 ## The thumbnail service
 
 The service is not in the Plugin. The first of the `VideoThumbnail`, `ExtractFrames` and `DetectScenes` Workers to start
-on a Host downloads it, in `setup()`, from the GitHub release `release.ts` pins: version `SERVICE_VERSION` (0.1.0), one archive per platform,
+on a Host downloads it, once its `setup()` has begun, from the GitHub release `release.ts` pins: version `SERVICE_VERSION` (0.1.0), one archive per platform,
 each checked against its SHA-256 before it is unpacked. It goes into the Plugin's data directory (`dataDir: true`,
 fyflow-plugin-sdk 0.6.0), under `service/thumbs-collage-<version>-<platform>/`, which the Host keeps across Reloads,
-updates and reinstalling, so it is downloaded once per Host and version. A Host's first thumbnail waits for the
-download (about 80 MB on Windows and Linux, which carry their FFmpeg libraries); the Worker tries it three times
-before its `setup()` fails. Older versions' folders stay until you delete them from the Plugin's Data dialog.
+updates and reinstalling, so it is downloaded once per Host and version. A Host's first Tasks wait for the
+download (about 80 MB on Windows and Linux, which carry their FFmpeg libraries), saying so in their progress with how
+much has arrived; the Worker tries it three times before they fail, as every Task of that Worker instance then does
+until its pool retires it. Older versions' folders stay until you delete them from the Plugin's Data dialog.
 
 The release has archives for Windows x64, Linux x64 and macOS arm64. The macOS one needs FFmpeg 8 installed (for
 example with Homebrew). On any other platform, or to use a build of your own, set `executablePath` in the Profile;
@@ -295,8 +296,26 @@ Each Task is one request: `POST /make_collage`, `/frames` or `/scenes`. Its prog
 goes to the Task's progress. If the service dies, the Tasks in flight fail with its last lines of output, every
 instance using it asks its pool to replace it, and the next one to start starts a new service.
 
-`setup()`, `teardown()` and that last request (`terminateWithError`) are the Worker lifecycle fyflow-plugin-sdk
-promises since 0.5.0.
+`setup()` only checks what it can at once (that `executablePath` names a file, that there is a data directory to
+download to), failing there if not, and starts getting the service without waiting for it: `setup()` has no Task to
+report to. A Task that comes before the service is ready says in its progress what it waits for, `Downloading the
+thumbnail service, thumbs-collage 0.1.0 (12.3 of 80.1 MB)`, then `Starting the thumbnail service`, and a cancelled one
+stops waiting. `setup()`, `teardown()` and that last request (`terminateWithError`) are the Worker lifecycle
+fyflow-plugin-sdk promises since 0.5.0.
+
+### Status
+
+The Plugin's card on the Host's Plugins page (`status()`, fyflow-plugin-sdk 0.6.0) says what the service is doing:
+
+| Status | When |
+| --- | --- |
+| `ok` thumbs-collage running · 2 jobs in flight | Running, with its process id, address, jobs in flight and executable in the details; each service apart if a Profile's own `executablePath` or `fontFile` started another. |
+| `info` Downloading thumbs-collage 0.1.0 (12.3 of 80.1 MB) | A first Task is waiting for the download. |
+| `info` Starting thumbs-collage | A service is starting, and has not yet said where it listens. |
+| `warning` thumbs-collage failed: … | The last download or start failed, or a running service died: the first line of why, and when. Cleared once a service starts. |
+| `ok` thumbs-collage 0.1.0 not running / not downloaded yet | No Task has needed it lately: the next one starts it, downloading it first if it is not there. |
+
+It reads what the Workers share on the Host's thread, and never starts or downloads anything itself.
 
 ### Cancelling
 

@@ -8,6 +8,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { currentDownload, type Download, onActivity } from "../activity.ts";
 import { ASSETS, type Asset, ensureService, installedExecutable, SERVICE_VERSION } from "../release.ts";
 import { EXECUTABLE } from "../service.ts";
 
@@ -46,7 +47,14 @@ describe("ensureService", () => {
   it("downloads, checks and unpacks the release once, however many ask at the same time", async () => {
     const to = join(dir, "data");
     requests = 0;
+    const seen: (Download | undefined)[] = [];
+    const stop = onActivity(() => seen.push(currentDownload()));
     const [a, b] = await Promise.all([ensureService(to, { asset, url }), ensureService(to, { asset, url })]);
+    stop();
+    // Its progress is passed on as it goes, for the Plugin's status and the Tasks waiting, and cleared at the end.
+    expect(seen[0]).toEqual({ version: SERVICE_VERSION, received: 0, total: expect.any(Number) });
+    expect(seen.at(-1)).toBeUndefined();
+    expect(currentDownload()).toBeUndefined();
     expect(a).toBe(join(to, "thumbs-collage-9.9.9-test", EXECUTABLE));
     expect(b).toBe(a);
     expect(a).toBe(installedExecutable(to, asset));

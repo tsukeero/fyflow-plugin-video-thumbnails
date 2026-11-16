@@ -4,6 +4,7 @@
 // however we end. The Workers share one process for each executable and font (`acquireService`), whichever Node Type
 // and Profile they serve.
 import { type ChildProcess, spawn } from "node:child_process";
+import { setFailure } from "./activity.ts";
 
 /** The service's executable's file name on this platform. */
 export const EXECUTABLE = process.platform === "win32" ? "thumbs-collage.exe" : "thumbs-collage";
@@ -29,6 +30,8 @@ export interface JobOptions {
 export interface Service {
   readonly url: string;
   readonly pid: number;
+  /** How many requests are in flight. */
+  readonly jobs: number;
   /** Makes one collage, the request in the service's own terms; resolves with the JPEG. */
   collage(request: Record<string, unknown>, options?: JobOptions): Promise<Uint8Array>;
   /** Extracts frames (`POST /frames`, service 0.1.0); resolves with the service's JSON reply. */
@@ -163,6 +166,10 @@ class RunningService implements Service {
     this.#listen();
   }
 
+  get jobs(): number {
+    return this.#inFlight.size;
+  }
+
   /** Hears the progress broadcast. Only progress is lost if it fails: the requests are plain HTTP. */
   #listen() {
     const socket = new WebSocket(`${this.url.replace(/^http/, "ws")}/ws-progress`);
@@ -218,7 +225,6 @@ class RunningService implements Service {
     read: (response: Response) => Promise<T>,
   ): Promise<T> {
     if (this.#gone !== undefined) throw this.#gone;
-    await this.opened();
     const controller = new AbortController();
     this.#inFlight.add(controller);
     const jobId = typeof request.job_id === "string" ? request.job_id : undefined;
@@ -227,6 +233,7 @@ class RunningService implements Service {
     const signal =
       options.signal === undefined ? controller.signal : AbortSignal.any([options.signal, controller.signal]);
     try {
+      await this.opened();
       const response = await fetch(`${this.url}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -288,7 +295,10 @@ export interface Lease extends Omit<Service, "stop"> {
 }
 
 interface Shared {
+  key: ServiceKey;
   started: Promise<Service>;
+  /** The service, once it has started. */
+  service?: Service;
   /** Each holder's `onExit`, one entry per lease. */
   holders: Set<{ onExit: (error: Error) => void }>;
 }
@@ -319,15 +329,23 @@ export async function acquireService(
       startTimeoutMs: key.startTimeoutMs,
       onExit: (error) => {
         if (shared.get(id) === created) shared.delete(id);
+        setFailure(error);
         for (const holder of [...holders]) holder.onExit(error);
       },
     });
-    const created: Shared = { started, holders };
+    const created: Shared = { key, started, holders };
     entry = created;
     shared.set(id, created);
-    started.catch(() => {
-      if (shared.get(id) === created) shared.delete(id);
-    });
+    started.then(
+      (service) => {
+        created.service = service;
+        setFailure(undefined);
+      },
+      (error: Error) => {
+        if (shared.get(id) === created) shared.delete(id);
+        setFailure(error);
+      },
+    );
   }
   const { holders, started } = entry;
   const holder = { onExit };
@@ -344,6 +362,9 @@ export async function acquireService(
   return {
     url: service.url,
     pid: service.pid,
+    get jobs() {
+      return service.jobs;
+    },
     collage: (request, options) => service.collage(request, options),
     frames: (request, options) => service.frames(request, options),
     scenes: (request, options) => service.scenes(request, options),
@@ -356,4 +377,29 @@ export async function acquireService(
       await service.stop();
     },
   };
+}
+
+/** A service of this module's, as the Plugin's status shows it. */
+export interface ServiceSnapshot {
+  executable: string;
+  fontFile: string | undefined;
+  /** `starting` until it says where it listens. */
+  state: "starting" | "running";
+  pid?: number;
+  url?: string;
+  /** How many Worker instances hold it, and how many requests are in flight. */
+  holders: number;
+  jobs: number;
+}
+
+/** The services started in this module and not yet stopped or dead. */
+export function serviceSnapshots(): ServiceSnapshot[] {
+  return [...shared.values()].map(({ key, service, holders }) => ({
+    executable: key.executable,
+    fontFile: key.fontFile,
+    state: service === undefined ? "starting" : "running",
+    ...(service === undefined ? {} : { pid: service.pid, url: service.url }),
+    holders: holders.size,
+    jobs: service?.jobs ?? 0,
+  }));
 }

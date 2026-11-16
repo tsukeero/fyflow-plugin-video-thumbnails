@@ -23,6 +23,8 @@ const FILES = [
   "service-worker.ts",
   "release.ts",
   "data.ts",
+  "activity.ts",
+  "status.ts",
   "README.md",
   "LICENSE",
 ];

@@ -74,7 +74,7 @@ export default class VideoThumbnail
       return result;
     }
 
-    const service = this.service;
+    const service = await this.service(context);
     context.sendProgress(0, "Extracting frames");
     const jpeg = await service.collage(
       { ...request, path: readable, job_id: jobId },

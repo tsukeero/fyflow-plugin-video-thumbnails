@@ -5,6 +5,7 @@
 import { CPU_GROUP, DISK_GROUP, definePlugin } from "fyflow-plugin-sdk";
 import { dataOf } from "./data.ts";
 import { VIDEO_EXTENSIONS } from "./formats.ts";
+import { status } from "./status.ts";
 
 const absolutePath = (description: string) => ({ type: "string", minLength: 1, description });
 
@@ -582,11 +583,12 @@ const videoFilesOutput = {
 
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
-  version: "0.4.0",
+  version: "0.4.1",
   // The service is downloaded into it on first use (./release.ts), and thumbnails go into it unless a Task or its
   // Profile says where (./data.ts); the Plugin's Data dialog lists both, for a person to delete.
   dataDir: true,
   data: dataOf,
+  status,
   // Every path a Flow names is checked against the Allowed roots a person sets on the Profiles page.
   roots: true,
   base: import.meta.url,

@@ -68,8 +68,8 @@ export default class ExtractFrames
       doneMessage: "Extracted the frames",
       reusedMessage: "Reused the frames extracted before",
       request,
-      call: (job, dir) =>
-        this.service.frames(
+      call: async (job, dir) =>
+        (await this.service(context)).frames(
           { ...request, ...job, output: { mode: "files", dir } },
           {
             signal: context.signal,

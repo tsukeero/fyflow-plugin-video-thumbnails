@@ -83,8 +83,8 @@ export default class DetectScenes
       doneMessage: "Detected the scenes",
       reusedMessage: "Reused the scenes detected before",
       request,
-      call: (job, dir) =>
-        this.service.scenes(
+      call: async (job, dir) =>
+        (await this.service(context)).scenes(
           {
             ...request,
             ...job,

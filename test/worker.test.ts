@@ -1,11 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { setDownload } from "../activity.ts";
 import { thumbnailsDir } from "../data.ts";
-import { installedExecutable } from "../release.ts";
+import { installedExecutable, SERVICE_VERSION } from "../release.ts";
 import { TEST_DATA_DIR } from "../scripts/fetch-service.ts";
 import { EXECUTABLE } from "../service.ts";
 import VideoThumbnail, { type ThumbnailResult } from "../thumbnail.worker.ts";
@@ -19,7 +21,9 @@ const context = () => {
   return {
     progress,
     signal: new AbortController().signal,
-    sendProgress: (p: number, m?: string) => progress.push([p, m]),
+    sendProgress: (p: number, m?: string) => {
+      progress.push([p, m]);
+    },
   };
 };
 
@@ -57,6 +61,63 @@ describe.skipIf(!fetched)("VideoThumbnail (needs `pnpm fetch-service`)", () => {
   afterAll(async () => {
     await worker.teardown();
     await rm(dir, { recursive: true, force: true });
+  });
+
+  // A Worker with a service of its own, not the one already running: its font is a copy.
+  const freshWorker = async () => {
+    const fontFile = join(dir, `font-${randomUUID()}.ttf`);
+    await copyFile(join(root, "assets", "fonts", "DejaVuSans.ttf"), fontFile);
+    return new VideoThumbnail({ host: { dataDir: TEST_DATA_DIR }, fontFile });
+  };
+
+  it("has its first Tasks say they wait for the service, which setup() does not wait for", async () => {
+    const fresh = await freshWorker();
+    await fresh.setup();
+    try {
+      const ctx = context();
+      // A download in progress, as another instance's would be, ending once the Task has said it waits for it.
+      setDownload({ version: SERVICE_VERSION, received: 2_000_000, total: 4_000_000 });
+      const send = ctx.sendProgress;
+      ctx.sendProgress = (p, m) => {
+        send(p, m);
+        if (m?.startsWith("Downloading")) setDownload(undefined);
+      };
+      await fresh.run(
+        { settings: { profile: { outputDir: join(dir, "waiting") }, roots: ROOTS }, input: { path: video } },
+        ctx,
+      );
+      expect(ctx.progress.slice(0, 2)).toEqual([
+        [0, `Downloading the thumbnail service, thumbs-collage ${SERVICE_VERSION} (2.0 of 4.0 MB)`],
+        [0, "Starting the thumbnail service"],
+      ]);
+      expect(ctx.progress.at(-1)?.[0]).toBe(1);
+    } finally {
+      await fresh.teardown();
+    }
+  });
+
+  it("stops waiting for the service when its Task is cancelled", async () => {
+    const fresh = await freshWorker();
+    await fresh.setup();
+    try {
+      // Cancelled as it says it waits for the service to start.
+      const controller = new AbortController();
+      const running = fresh.run(
+        {
+          settings: { profile: { outputDir: join(dir, "waiting") }, roots: ROOTS },
+          input: { path: video, overwrite: true },
+        },
+        {
+          signal: controller.signal,
+          sendProgress: (_p: number, m?: string) => {
+            if (m === "Starting the thumbnail service") controller.abort(new Error("Cancelled"));
+          },
+        },
+      );
+      await expect(running).rejects.toThrow("Cancelled");
+    } finally {
+      await fresh.teardown();
+    }
   });
 
   it("makes a thumbnail of the middle of the video in the Profile's outputDir, and describes it", async () => {
