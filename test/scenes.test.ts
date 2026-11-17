@@ -116,6 +116,7 @@ describe.skipIf(!fetched)("DetectScenes (needs `pnpm fetch-service`)", () => {
     expect(await readdir(result.folder)).toEqual(["scenes.json"]);
     const manifest = JSON.parse(await readFile(result.manifest, "utf8")) as ScenesManifest;
     expect(manifest).not.toHaveProperty("scores");
+    expect(manifest.fingerprint).toMatch(/^fp1:/);
     expect(manifest.scenes[0]).toHaveProperty("mid");
     expect(ctx.progress.at(-1)?.[0]).toBe(1);
   });

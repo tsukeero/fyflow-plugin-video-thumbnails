@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { setDownload } from "./activity.ts";
 import { EXECUTABLE } from "./service.ts";
 
-export const SERVICE_VERSION = "0.1.0";
+export const SERVICE_VERSION = "0.2.0";
 export const SERVICE_REPO = "tsukeero/rust-video-thumbnail-generator";
 
 export interface Asset {
@@ -23,15 +23,15 @@ export interface Asset {
 export const ASSETS: Record<string, Asset> = {
   "win32-x64": {
     name: `thumbs-collage-${SERVICE_VERSION}-windows-x86_64.zip`,
-    sha256: "95bad54fde4dd7c1741573e4419b6f91247e4ac79f47c65267a479b5d8566ebc",
+    sha256: "e1ab421b0182df611598d59e8b87c4a064f31c39d0b7bb11dc3fed2a06e1de6d",
   },
   "linux-x64": {
     name: `thumbs-collage-${SERVICE_VERSION}-linux-x86_64.tar.gz`,
-    sha256: "811c5000c0d23892e2a13c8ebd006258d0ce308246b0868e6857b8214b49e0d4",
+    sha256: "0c0ac36ae7a0d2d6d5619a83278e2f12c8cc76929badef389cf88f93b4938195",
   },
   "darwin-arm64": {
     name: `thumbs-collage-${SERVICE_VERSION}-macos-aarch64.tar.gz`,
-    sha256: "58b6f83c20bfe19a3da7ef20c2ea3465904b49b8d1c6052247809c891d0d6677",
+    sha256: "e6ec379b14d9a7cd121c500ab9aef22ee1cf8613bfc2fbc438a135eb5045a42c",
   },
 };
 

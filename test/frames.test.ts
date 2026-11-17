@@ -101,6 +101,8 @@ describe.skipIf(!fetched)("ExtractFrames (needs `pnpm fetch-service`)", () => {
     ]);
     const manifest = JSON.parse(await readFile(result.manifest, "utf8")) as FramesManifest;
     expect(manifest.video).toBe(video);
+    // thumbs-collage 0.2.0 identifies the video by its fp1 fingerprint, kept from the reply.
+    expect(manifest.fingerprint).toMatch(/^fp1:/);
     expect(manifest.frames.map((f) => f?.file)).toEqual(["frame_000.jpg", "frame_001.jpg", "frame_002.jpg"]);
     expect(manifest.config).not.toHaveProperty("output");
     // Nothing of the staging folder is left.

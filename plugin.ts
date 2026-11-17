@@ -583,7 +583,7 @@ const videoFilesOutput = {
 
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
-  version: "0.4.1",
+  version: "0.4.2",
   // The service is downloaded into it on first use (./release.ts), and thumbnails go into it unless a Task or its
   // Profile says where (./data.ts); the Plugin's Data dialog lists both, for a person to delete.
   dataDir: true,
