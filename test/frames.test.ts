@@ -91,6 +91,7 @@ describe.skipIf(!fetched)("ExtractFrames (needs `pnpm fetch-service`)", () => {
       video,
       duration: 6,
       reused: false,
+      fingerprint: expect.stringMatching(/^fp1:[0-9a-f]{32}$/),
     });
     expect(result.frames).toBeUndefined();
     expect((await readdir(result.folder)).sort()).toEqual([

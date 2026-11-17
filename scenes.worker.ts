@@ -7,6 +7,7 @@ import type { TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
 import { SCENES } from "./data.ts";
 import { IMAGE_KEYS, imageOf, listsOf, objectOf, runFolderJob } from "./folder-job.ts";
 import { bool, defined, fieldOf, integer, number, oneOf } from "./options.ts";
+import { fingerprintOf } from "./output.ts";
 import { type ProfileFields, ServiceWorker } from "./service-worker.ts";
 
 export type { Config, ProfileFields } from "./service-worker.ts";
@@ -56,6 +57,11 @@ export interface ScenesResult {
   detector: string;
   /** Whether the folder was there already from an earlier Task, rather than made by this one. */
   reused: boolean;
+  /**
+   * The video file's fp1 fingerprint, `fp1:` and 32 hex digits: a stable identity across renames and moves, from
+   * thumbs-collage 0.2.0 on. Absent for output an older service made.
+   */
+  fingerprint?: string;
   /** With `lists: "result"`: the scenes. */
   scenes?: { index: number; start: number; end: number; mid: number }[];
   /** With `lists: "result"`: the frames picked, absolute paths. */
@@ -107,6 +113,7 @@ export default class DetectScenes
       duration: data.duration,
       detector: data.detector,
       reused,
+      ...fingerprintOf(data.fingerprint),
     };
     if (lists === "result") {
       result.scenes = data.scenes.map(({ index, start, end, mid }) => ({ index, start, end, mid }));

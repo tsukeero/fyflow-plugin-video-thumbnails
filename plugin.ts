@@ -113,6 +113,7 @@ const settingsSchema = {
 // Made-up paths for the schemas' examples, which the app's editor shows beside each Node's fields.
 const EXAMPLE_FOLDER = "D:/Videos";
 const EXAMPLE_VIDEO = `${EXAMPLE_FOLDER}/holiday.mp4`;
+const EXAMPLE_FINGERPRINT = "fp1:0fa350dd73b368e5e2a391644eff4afc";
 
 // Fields it doesn't list are left alone, so a ListFolder entry or an IsVideo result fits as it is.
 const inputSchema = {
@@ -125,6 +126,13 @@ const inputSchema = {
     ...settingsSchema.properties,
   },
   examples: [{ path: EXAMPLE_VIDEO }],
+};
+
+// The video file's fp1 (thumbs-collage 0.2.0 on): not required, since output an older service made has none.
+const fingerprint = {
+  type: "string",
+  description:
+    "the video file's fp1 fingerprint, a stable identity across renames and moves; absent for output made by thumbs-collage before 0.2.0",
 };
 
 const outputSchema = {
@@ -146,6 +154,7 @@ const outputSchema = {
       },
     },
     reused: { type: "boolean", description: "true when an earlier Task had made it already" },
+    fingerprint,
   },
   examples: [
     {
@@ -156,6 +165,7 @@ const outputSchema = {
       height: 360,
       frames: [{ requested: 377.1, actual: 377.1 }],
       reused: false,
+      fingerprint: EXAMPLE_FINGERPRINT,
     },
   ],
 };
@@ -222,6 +232,7 @@ const folderResult = {
   video: { type: "string", description: "the video's absolute path" },
   duration: { type: "number", description: "the video's length in seconds" },
   reused: { type: "boolean", description: "true when an earlier Task had made the folder already" },
+  fingerprint,
 };
 
 const EXAMPLE_FRAMES_FOLDER = `${EXAMPLE_FOLDER}/frames/holiday.3f9a1c2e7b40`;
@@ -264,6 +275,7 @@ const framesOutput = {
       video: EXAMPLE_VIDEO,
       duration: 754.2,
       reused: false,
+      fingerprint: EXAMPLE_FINGERPRINT,
       frames: [
         { path: `${EXAMPLE_FRAMES_FOLDER}/frame_000.jpg`, index: 0, requested: 251.4, actual: 251.4 },
         { path: `${EXAMPLE_FRAMES_FOLDER}/frame_001.jpg`, index: 1, requested: 502.8, actual: 502.8 },
@@ -422,6 +434,7 @@ const scenesOutput = {
       duration: 14.5,
       detector: "content",
       reused: false,
+      fingerprint: EXAMPLE_FINGERPRINT,
       scenes: [
         { index: 0, start: 0, end: 8.5, mid: 4.25 },
         { index: 1, start: 8.5, end: 14.5, mid: 11.5 },
@@ -583,7 +596,7 @@ const videoFilesOutput = {
 
 export default definePlugin({
   id: "fyflow-ext.video-thumbnail",
-  version: "0.4.2",
+  version: "0.4.3",
   // The service is downloaded into it on first use (./release.ts), and thumbnails go into it unless a Task or its
   // Profile says where (./data.ts); the Plugin's Data dialog lists both, for a person to delete.
   dataDir: true,

@@ -107,6 +107,7 @@ describe.skipIf(!fetched)("DetectScenes (needs `pnpm fetch-service`)", () => {
       video,
       detector: "content",
       reused: false,
+      fingerprint: expect.stringMatching(/^fp1:[0-9a-f]{32}$/),
       frames: [],
     });
     const [first, second] = result.scenes ?? [];

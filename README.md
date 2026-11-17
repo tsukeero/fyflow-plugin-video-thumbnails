@@ -91,8 +91,11 @@ which nothing clears by itself ([below](#its-data-directory)). In a folder, the 
 last change, and the options, so running a Task again on an unchanged video reuses the file (`reused: true`) unless
 `overwrite` is set. A `.jpg` path that is given is always written.
 
-**Result:** `{ path, video, duration, width, height, frames: [{ requested, actual }], reused }`. A frame's `actual`
-timestamp differs from the one `requested` when blank frames were skipped.
+**Result:** `{ path, video, duration, width, height, frames: [{ requested, actual }], reused, fingerprint }`. A frame's
+`actual` timestamp differs from the one `requested` when blank frames were skipped. `fingerprint` is the video file's
+fp1 (`fp1:` and 32 hex digits, thumbs-collage 0.2.0 on): a stable identity across renames and moves, for keying what a
+Flow learns about a video. It is read from the JPEG's metadata, so a reused thumbnail has it too, unless an older
+service made it; this and the other Node Types then leave it out.
 
 **Profile:** the `fyflow-ext.video-thumbnail` section holds `executablePath` (left empty, the downloaded release),
 `fontFile` and `outputDir`, each optional. `executablePath` and `fontFile` are start-up fields, so a change takes effect at the Host's next Reload.
@@ -151,8 +154,7 @@ or sizes. The service holds every frame decoded until the job ends, about `frame
 2,000 frames at 4K would take about 66 GB and abort it: keep counts and sizes sane. `format` is `jpeg` (the default)
 or `png`; `quality` (JPEG only) is the service's, 80, unless set. JPEG frames carry the service's metadata (video,
 duration, index, timestamps, scene, and the video's `fingerprint`) in their comment segment; PNG frames carry
-none. The manifests carry the `fingerprint` too (thumbs-collage 0.2.0): the file's fp1, a stable identity that
-survives renames and moves.
+none. The manifests carry the `fingerprint` too, as do the results (see `VideoThumbnail`).
 
 ### `ExtractFrames`
 
@@ -166,7 +168,7 @@ One image per requested timestamp (the service's `POST /frames`), named `frame_0
 | `skipBlankFrames` | Step past black or solid frames (on unless set off). |
 | `forceFallback` | As `VideoThumbnail`'s. |
 
-**Result:** `{ folder, manifest, count, video, duration, reused }`, and with `lists: "result"` also
+**Result:** `{ folder, manifest, count, video, duration, reused, fingerprint }`, and with `lists: "result"` also
 `frames: [{ path, index, requested, actual }]` and `missing` (the indexes in the selection the service could not
 decode, which `frames` leaves out).
 
@@ -194,7 +196,7 @@ The service's measured scores for each `hint` (F1, on 898 labelled cuts) are 0.9
 other frames refer to, 1.3 to 2 times faster for a slightly lower score; it also helps with interlaced H.264 TV
 recordings the full pass finds too damaged.
 
-**Result:** `{ folder, manifest, count, frameCount, video, duration, detector, reused }`, `count` being the scenes,
+**Result:** `{ folder, manifest, count, frameCount, video, duration, detector, reused, fingerprint }`, `count` being the scenes,
 and with `lists: "result"` also `scenes: [{ index, start, end, mid }]` (seconds, `end` exclusive, `mid` the middle)
 and `frames: [{ path, index, scene, target, timestamp }]`. Without `frames` the folder holds only `scenes.json`,
 kept like any other: detection decodes the whole video, so it is worth not doing twice.

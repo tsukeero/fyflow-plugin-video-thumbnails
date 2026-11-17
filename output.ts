@@ -107,3 +107,8 @@ export function framesOf(frames: unknown): { requested: number; actual: number }
       actual: typeof f.timestamp_actual === "number" ? f.timestamp_actual : 0,
     }));
 }
+
+/** `{ fingerprint }` when the service gave the video's one (thumbs-collage 0.2.0 on), else nothing. */
+export function fingerprintOf(value: unknown): { fingerprint?: string } {
+  return typeof value === "string" && value.length > 0 ? { fingerprint: value } : {};
+}

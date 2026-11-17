@@ -6,6 +6,7 @@ import type { TaskEnvelope, Worker, WorkerContext } from "fyflow-plugin-sdk";
 import { FRAMES } from "./data.ts";
 import { IMAGE_KEYS, imageOf, listsOf, runFolderJob } from "./folder-job.ts";
 import { bool, checkSelection, defined, fieldOf, oneOf, selectionOf } from "./options.ts";
+import { fingerprintOf } from "./output.ts";
 import { type ProfileFields, ServiceWorker } from "./service-worker.ts";
 
 export type { Config, ProfileFields } from "./service-worker.ts";
@@ -39,6 +40,11 @@ export interface FramesResult {
   duration: number;
   /** Whether the folder was there already from an earlier Task, rather than made by this one. */
   reused: boolean;
+  /**
+   * The video file's fp1 fingerprint, `fp1:` and 32 hex digits: a stable identity across renames and moves, from
+   * thumbs-collage 0.2.0 on. Absent for output an older service made.
+   */
+  fingerprint?: string;
   /** With `lists: "result"`: the frames, absolute paths, without the missing ones. */
   frames?: { path: string; index: number; requested: number; actual: number }[];
   /** With `lists: "result"`: the indexes of the frames the service could not decode. */
@@ -87,6 +93,7 @@ export default class ExtractFrames
       video: data.video,
       duration: data.duration,
       reused,
+      ...fingerprintOf(data.fingerprint),
     };
     if (lists === "result") {
       result.frames = frames.map((f) => ({

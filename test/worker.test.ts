@@ -125,7 +125,15 @@ describe.skipIf(!fetched)("VideoThumbnail (needs `pnpm fetch-service`)", () => {
     const result = await run({}, { path: video }, ctx);
     expect(result.path.startsWith(dir)).toBe(true);
     expect(result.path).toMatch(/sample\.[0-9a-f]{12}\.jpg$/);
-    expect(result).toMatchObject({ video, duration: 6, width: 640, height: 360, reused: false });
+    expect(result).toMatchObject({
+      video,
+      duration: 6,
+      width: 640,
+      height: 360,
+      reused: false,
+      // thumbs-collage 0.2.0 on: the video's fp1, from the JPEG's metadata, so a reused one has it too.
+      fingerprint: expect.stringMatching(/^fp1:[0-9a-f]{32}$/),
+    });
     expect(result.frames).toEqual([{ requested: 3, actual: 3 }]);
     expect((await stat(result.path)).size).toBeGreaterThan(1000);
     expect(ctx.progress.at(-1)?.[0]).toBe(1);

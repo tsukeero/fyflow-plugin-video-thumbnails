@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { allowedPath, type TaskEnvelope, type Worker, type WorkerContext } from "fyflow-plugin-sdk";
 import { THUMBNAILS } from "./data.ts";
 import { fieldOf, optionsOf, pathFrom, requestOf } from "./options.ts";
-import { framesOf, metadataOf, outputOf } from "./output.ts";
+import { fingerprintOf, framesOf, metadataOf, outputOf } from "./output.ts";
 import { outputDirOf, type ProfileFields, ServiceWorker } from "./service-worker.ts";
 
 export type { Config, ProfileFields } from "./service-worker.ts";
@@ -26,9 +26,15 @@ export interface ThumbnailResult {
   frames: { requested: number; actual: number }[];
   /** Whether the thumbnail was already there from an earlier Task, rather than made by this one. */
   reused: boolean;
+  /**
+   * The video file's fp1 fingerprint, `fp1:` and 32 hex digits: a stable identity across renames and moves, from
+   * thumbs-collage 0.2.0 on. Absent for output an older service made.
+   */
+  fingerprint?: string;
 }
 
 interface Metadata {
+  fingerprint?: unknown;
   duration?: number;
   size?: { w?: number; h?: number };
   frames?: unknown;
@@ -107,5 +113,6 @@ function resultOf(path: string, video: string, jpeg: Uint8Array, reused: boolean
     height: meta.size?.h ?? 0,
     frames: framesOf(meta.frames),
     reused,
+    ...fingerprintOf(meta.fingerprint),
   };
 }
