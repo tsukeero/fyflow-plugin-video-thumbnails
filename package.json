@@ -1,6 +1,6 @@
 {
   "name": "fyflow-plugin-video-thumbnail",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "A fyflow-app Plugin: video thumbnails, contact sheets, frames and scene cuts, made by a local thumbs-collage service",
   "keywords": [

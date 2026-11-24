@@ -246,14 +246,14 @@ the Node a JSONata transform of its input instead.
 A file is a video when:
 
 1. its extension is one of `extensions`. Left empty, that is mp4, m4v, mov, mkv, webm, avi, wmv, asf, flv, f4v,
-   mpg, mpeg, m2ts, mts, ts, 3gp, 3g2, ogv, vob, rm, rmvb and divx; and
-2. unless `checkContent` is off, its first bytes are a video container's signature: MP4/MOV (`ftyp`, except
-   audio-only brands like M4A), Matroska/WebM, AVI, ASF/WMV, FLV, MPEG program or transport stream, Ogg or
-   RealMedia.
+   mpg, mpeg, m2ts, mts, ts, 3gp, 3g2, ogv, ogm, vob, rm, rmvb, rl and divx; and
+2. unless `checkContent` is off, its first bytes are a video container's signature: MP4/MOV (`ftyp`, any brand),
+   Matroska/WebM, AVI, ASF/WMV, FLV, MPEG program or transport stream, Ogg or RealMedia.
 
-The signature names the container, not what it holds: an `.mkv` or `.ogv` with only audio in it passes, and the
-thumbnail Task then fails on it. A video with an extension not in the list is left out even if its content is a
-video's. Folders and links in a listing are left out, and so are files that can't be read.
+The signature names the container, not what it holds: an `.mkv`, `.ogv` or `.mp4` with only audio in it passes (an
+MP4's brand can't tell: some muxers brand a video with AAC audio as M4A), and the thumbnail Task then fails on
+it. A video with an extension not in the list is left out even if its content is a video's. Folders and links
+in a listing are left out, and so are files that can't be read.
 
 Neither decodes anything: each reads at most 512 bytes of a file. `VideoFiles` reads 16 files at a time and takes
 one slot of the `disk` group while it runs. `IsVideo` takes none, since one small read per item shouldn't wait

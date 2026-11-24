@@ -36,8 +36,11 @@ describe("containerOf", () => {
     expect(containerOf(bytes)).toBe(container);
   });
 
-  it("refuses an audio-only MP4, a WAV, text, and a file too short to say", () => {
-    expect(containerOf(head([4, "ftypM4A "]))).toBeNull();
+  it("takes any MP4 brand, since an M4A-branded file may hold video", () => {
+    expect(containerOf(head([4, "ftypM4A "], [16, "isommp423gp5"]))).toBe("mp4");
+  });
+
+  it("refuses a WAV, text, and a file too short to say", () => {
     expect(containerOf(head([0, "RIFF"], [8, "WAVE"]))).toBeNull();
     expect(containerOf(new TextEncoder().encode("# not a video\n"))).toBeNull();
     expect(containerOf(new Uint8Array([0x47]))).toBeNull();
@@ -56,7 +59,8 @@ describe("hasExtension", () => {
 
   it("has the common video extensions by default, and no audio or image ones", () => {
     const wanted = normalized(VIDEO_EXTENSIONS);
-    for (const ext of ["mp4", "mkv", "mov", "webm", "avi", "ts", "rmvb"]) expect(wanted.has(ext)).toBe(true);
+    for (const ext of ["mp4", "mkv", "mov", "webm", "avi", "ts", "rmvb", "ogm", "rl"])
+      expect(wanted.has(ext)).toBe(true);
     for (const ext of ["mp3", "m4a", "wav", "jpg", "png", "gif"]) expect(wanted.has(ext)).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 // Which files are videos: by extension, and by the signature at the start of the file. A signature says which
-// container a file is, not that it holds a video stream: an .mkv or .ogv may hold only audio. Audio-only MP4s say
-// so in their brand, and are refused.
+// container a file is, not that it holds a video stream: an .mkv, .ogv or .mp4 may hold only audio. An MP4's brand
+// doesn't settle it either: some muxers brand a video with AAC audio "M4A ".
 import { open } from "node:fs/promises";
 import { extname } from "node:path";
 import { absolute } from "./options.ts";
@@ -25,9 +25,11 @@ export const VIDEO_EXTENSIONS: readonly string[] = Object.freeze([
   "3gp",
   "3g2",
   "ogv",
+  "ogm",
   "vob",
   "rm",
   "rmvb",
+  "rl",
   "divx",
 ]);
 
@@ -44,9 +46,6 @@ export function hasExtension(path: string, extensions: ReadonlySet<string>): boo
   return extensions.has(extname(path).slice(1).toLowerCase());
 }
 
-/** ISO base media (MP4, MOV, 3GP) brands of audio-only files: iTunes audio, audiobooks, protected audio. */
-const AUDIO_BRANDS = new Set(["M4A ", "M4B ", "M4P "]);
-
 /** The first box types of a QuickTime file older than `ftyp`. */
 const QUICKTIME_BOXES = new Set(["moov", "mdat", "wide", "free", "skip", "pnot"]);
 
@@ -58,7 +57,7 @@ export function containerOf(head: Uint8Array): string | null {
     String.fromCharCode(...head.subarray(from, from + length)).padEnd(length, "\0");
   const at = (from: number, bytes: readonly number[]) => bytes.every((b, i) => head[from + i] === b);
 
-  if (ascii(4, 4) === "ftyp") return AUDIO_BRANDS.has(ascii(8, 4)) ? null : "mp4";
+  if (ascii(4, 4) === "ftyp") return "mp4";
   if (QUICKTIME_BOXES.has(ascii(4, 4))) return "mov";
   if (at(0, [0x1a, 0x45, 0xdf, 0xa3])) return "matroska";
   if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "AVI ") return "avi";
