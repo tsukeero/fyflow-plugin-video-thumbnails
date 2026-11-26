@@ -4,6 +4,7 @@
 // however we end. The Workers share one process for each executable and font (`acquireService`), whichever Node Type
 // and Profile they serve.
 import { type ChildProcess, spawn } from "node:child_process";
+import { request as httpRequest } from "node:http";
 import { setFailure } from "./activity.ts";
 
 /** The service's executable's file name on this platform. */
@@ -201,20 +202,15 @@ class RunningService implements Service {
   }
 
   async collage(request: Record<string, unknown>, options: JobOptions = {}): Promise<Uint8Array> {
-    return this.#job(
-      "/make_collage",
-      request,
-      options,
-      async (response) => new Uint8Array(await response.arrayBuffer()),
-    );
+    return this.#job("/make_collage", request, options, (body) => new Uint8Array(body));
   }
 
   frames(request: Record<string, unknown>, options: JobOptions = {}): Promise<unknown> {
-    return this.#job("/frames", request, options, (response) => response.json());
+    return this.#job("/frames", request, options, jsonOf);
   }
 
   scenes(request: Record<string, unknown>, options: JobOptions = {}): Promise<unknown> {
-    return this.#job("/scenes", request, options, (response) => response.json());
+    return this.#job("/scenes", request, options, jsonOf);
   }
 
   /** Posts one job, reporting its progress, and reads its reply; aborted with the reason if the service dies. */
@@ -222,7 +218,7 @@ class RunningService implements Service {
     path: string,
     request: Record<string, unknown>,
     options: JobOptions,
-    read: (response: Response) => Promise<T>,
+    read: (body: Buffer) => T,
   ): Promise<T> {
     if (this.#gone !== undefined) throw this.#gone;
     const controller = new AbortController();
@@ -234,20 +230,26 @@ class RunningService implements Service {
       options.signal === undefined ? controller.signal : AbortSignal.any([options.signal, controller.signal]);
     try {
       await this.opened();
-      const response = await fetch(`${this.url}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request),
-        signal,
-      });
-      if (response.status === 404 && path !== "/make_collage")
+      let reply: Reply;
+      try {
+        reply = await post(`${this.url}${path}`, JSON.stringify(request), signal);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        // The connection breaks before the process is seen to exit when the service dies: give it a moment to.
+        await Promise.race([this.#exit, new Promise((resolve) => setTimeout(resolve, 1000).unref())]);
+        if (this.#gone !== undefined) throw this.#gone;
+        throw new Error(`The thumbnail service's connection failed: ${causeOf(error)}`, { cause: error });
+      }
+      if (reply.status === 404 && path !== "/make_collage")
         throw new Error(
           `This thumbs-collage has no ${path}: it is older than 0.1.0. Update it, or clear \`executablePath\` in the fyflow-ext.video-thumbnail section of this Node's Profile`,
         );
-      if (!response.ok) throw new Error(await refusalOf(response));
-      return await read(response);
+      if (reply.status < 200 || reply.status >= 300) throw new Error(refusalOf(reply));
+      return read(reply.body);
     } catch (error) {
-      throw controller.signal.aborted ? controller.signal.reason : error;
+      if (controller.signal.aborted) throw controller.signal.reason;
+      if (options.signal?.aborted) throw options.signal.reason;
+      throw error;
     } finally {
       this.#inFlight.delete(controller);
       if (jobId !== undefined) this.#progress.delete(jobId);
@@ -265,9 +267,55 @@ class RunningService implements Service {
   }
 }
 
-/** What a failed response says: the service's `{ error }` (500), its plain text (422), or its being busy (429). */
-async function refusalOf(response: Response): Promise<string> {
-  const text = (await response.text()).trim();
+interface Reply {
+  status: number;
+  body: Buffer;
+}
+
+/**
+ * Posts `body` as JSON to `url` and reads the whole reply. With `node:http` rather than `fetch`, whose reply must start
+ * within 5 minutes: the service answers a job only once it is done, and detecting the scenes of a long video can take
+ * longer. Waiting has no limit; the job's signal ends it. Each job has its own connection, so none is reused just as
+ * the service closes it for being idle.
+ */
+function post(url: string, body: string, signal: AbortSignal): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      url,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+        agent: false,
+        signal,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks) }));
+        response.on("error", reject);
+        response.on("aborted", () => reject(new Error("the reply was cut off")));
+      },
+    );
+    request.on("error", reject);
+    request.end(body);
+  });
+}
+
+/** What broke a connection: the error's own message, its code, and what caused it, if anything did. */
+function causeOf(error: unknown): string {
+  const parts: string[] = [];
+  for (let e: unknown = error; e instanceof Error && parts.length < 4; e = e.cause) {
+    const code = (e as { code?: unknown }).code;
+    parts.push(typeof code === "string" && !e.message.includes(code) ? `${e.message} (${code})` : e.message);
+  }
+  return parts.length > 0 ? parts.join(": ") : String(error);
+}
+
+const jsonOf = (body: Buffer): unknown => JSON.parse(body.toString("utf8"));
+
+/** What a failed reply says: the service's `{ error }` (500), its plain text (422), or its being busy (429). */
+function refusalOf(response: Reply): string {
+  const text = response.body.toString("utf8").trim();
   let said = text;
   try {
     const body = JSON.parse(text) as { error?: unknown };

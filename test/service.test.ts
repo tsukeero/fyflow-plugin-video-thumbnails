@@ -129,4 +129,36 @@ describe("acquireService", () => {
     );
     await expect(lease.scenes({ path: "x" })).rejects.toThrow(/has no \/scenes/);
   });
+
+  it("waits for a reply that starts only when the job is done", async () => {
+    const lease = await acquire();
+    await expect(lease.scenes({ fake: "slow", ms: 1500 })).resolves.toEqual({});
+  });
+
+  it("says why a connection broke, not just that it did", async () => {
+    const lease = await acquire();
+    await expect(lease.scenes({ fake: "drop" })).rejects.toThrow(
+      /^The thumbnail service's connection failed: socket hang up \(ECONNRESET\)/,
+    );
+    expect(lease.jobs).toBe(0);
+  });
+
+  it("says the service died when it breaks the connection as it dies", async () => {
+    const lease = await acquire(() => {});
+    await expect(lease.scenes({ fake: "die" })).rejects.toThrow(
+      /^The thumbnail service exited unexpectedly \(exit code 3\)/,
+    );
+  });
+
+  it("ends a job when its signal aborts, with the signal's reason", async () => {
+    const lease = await acquire();
+    const reason = new Error("cancelled");
+    await expect(
+      lease.scenes({ fake: "slow", ms: 10_000 }, { signal: AbortSignal.timeout(100) }),
+    ).rejects.toThrow(/timed out|aborted/i);
+    const controller = new AbortController();
+    const job = lease.scenes({ fake: "slow", ms: 10_000 }, { signal: controller.signal });
+    controller.abort(reason);
+    await expect(job).rejects.toBe(reason);
+  });
 });
